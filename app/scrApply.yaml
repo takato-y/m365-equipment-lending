@@ -1,0 +1,166 @@
+# SCR-002 貸出の申請（画面 scrApply に貼り付ける部品）
+# 期間・目的はこの画面でも確かめるが、最終の判定はフロー FLW-001 が行い、その結果（message）を表示する。
+- rectHeader2:
+    Control: Rectangle@2.3.0
+    Properties:
+      Fill: =RGBA(0, 78, 120, 1)
+      Height: =72
+      Width: =Parent.Width
+- lblHeader2:
+    Control: Label@2.5.1
+    Properties:
+      Color: =RGBA(255, 255, 255, 1)
+      FontWeight: =FontWeight.Semibold
+      Height: =72
+      Size: =20
+      Text: ="貸出の申請"
+      Width: =600
+      X: =32
+- btnBack2:
+    Control: Classic/Button@2.2.0
+    Properties:
+      DisplayMode: =If(varBusy, DisplayMode.Disabled, DisplayMode.Edit)
+      Fill: =RGBA(255, 255, 255, 1)
+      Color: =RGBA(0, 78, 120, 1)
+      Height: =44
+      Text: ="一覧へ戻る"
+      Width: =180
+      X: =Parent.Width - Self.Width - 32
+      Y: =14
+      OnSelect: =Navigate(scrEquipment)
+- lblEquip:
+    Control: Label@2.5.1
+    Properties:
+      FontWeight: =FontWeight.Semibold
+      Height: =48
+      Size: =18
+      Text: =varEquip.管理番号 & "　" & varEquip.品名
+      Width: =800
+      X: =32
+      Y: =88
+- lblStartCaption:
+    Control: Label@2.5.1
+    Properties:
+      Text: ="貸出開始日"
+      Width: =200
+      X: =32
+      Y: =148
+- dpStart:
+    Control: Classic/DatePicker@2.6.0
+    Properties:
+      DefaultDate: =Today()
+      Reset: =varResetApply
+      Format: ="yyyy/mm/dd"
+      Width: =240
+      X: =32
+      Y: =184
+- lblDueCaption:
+    Control: Label@2.5.1
+    Properties:
+      Text: ="返却予定日"
+      Width: =200
+      X: =300
+      Y: =148
+- dpDue:
+    Control: Classic/DatePicker@2.6.0
+    Properties:
+      DefaultDate: =DateAdd(Today(), 1, TimeUnit.Days)
+      Reset: =varResetApply
+      Format: ="yyyy/mm/dd"
+      Width: =240
+      X: =300
+      Y: =184
+- lblPurposeCaption:
+    Control: Label@2.5.1
+    Properties:
+      Text: ="利用目的（500文字まで）"
+      Width: =400
+      X: =32
+      Y: =240
+- txtPurpose:
+    Control: Classic/TextInput@2.3.2
+    Properties:
+      Default: =""
+      Height: =120
+      HintText: ="例）客先での打ち合わせに使うため"
+      MaxLength: =500
+      Reset: =varResetApply
+      Mode: =TextMode.MultiLine
+      Width: =508
+      X: =32
+      Y: =276
+- lblCheck:
+    Control: Label@2.5.1
+    Properties:
+      Color: =RGBA(164, 38, 44, 1)
+      Height: =40
+      Text: |-
+        =With(
+            {
+                limit: Coalesce(Value(LookUp(設定, 項目 = "貸出上限日数").値), 14),
+                ahead: Coalesce(Value(LookUp(設定, 項目 = "予約受付日数").値), 60)
+            },
+            If(
+                dpStart.SelectedDate < Today(), "開始日は今日以降にしてください。",
+                dpStart.SelectedDate > DateAdd(Today(), ahead, TimeUnit.Days), "開始日は今日から " & ahead & " 日先までです。",
+                dpDue.SelectedDate < dpStart.SelectedDate, "返却予定日は開始日以降にしてください。",
+                DateDiff(dpStart.SelectedDate, dpDue.SelectedDate, TimeUnit.Days) + 1 > limit, "貸出は最長 " & limit & " 日です。",
+                IsBlank(Trim(txtPurpose.Text)), "利用目的を入れてください。",
+                ""
+            )
+        )
+      Width: =800
+      X: =32
+      Y: =404
+- btnApply:
+    Control: Classic/Button@2.2.0
+    Properties:
+      DisplayMode: =If(IsBlank(lblCheck.Text) && !varBusy, DisplayMode.Edit, DisplayMode.Disabled)
+      Height: =48
+      Text: ="申請する"
+      Width: =200
+      X: =32
+      Y: =452
+      OnSelect: |-
+        =Set(varBusy, true);
+        Set(
+            varResp,
+            IfError('FLW-001利用者の操作'.Run(
+                "申請",
+                {
+                    text_1: Text(dpStart.SelectedDate, "yyyy-mm-dd"),
+                    text_2: Text(dpDue.SelectedDate, "yyyy-mm-dd"),
+                    text_3: txtPurpose.Text,
+                    number: varEquip.ID
+                }
+            ), {result: "エラー", message: "処理に失敗しました。時間をおいてもう一度お試しください。", data: ""})
+        );
+        Set(varBusy, false);
+        Notify(varResp.message, If(varResp.result = "受付", NotificationType.Success, NotificationType.Warning));
+        If(varResp.result = "受付", Navigate(scrEquipment))
+- lblResvTitle:
+    Control: Label@2.5.1
+    Properties:
+      FontWeight: =FontWeight.Semibold
+      Text: ="この備品の予約・貸出の期間"
+      Width: =400
+      X: =600
+      Y: =148
+- galResv:
+    Control: Gallery@2.15.0
+    Variant: BrowseLayout_Vertical_TwoTextOneImageVariant_ver5.0
+    Properties:
+      Height: =Parent.Height - Self.Y - 16
+      Items: =SortByColumns(Filter(予約表, 備品.Id = varEquip.ID && 返却予定日 >= Today()), "StartDate")
+      TemplateSize: =40
+      Width: =Parent.Width - Self.X - 32
+      X: =600
+      Y: =184
+    Children:
+      - lblResv:
+          Control: Label@2.5.1
+          Properties:
+            Height: =40
+            Text: =Text(ThisItem.貸出開始日, "yyyy/mm/dd") & " 〜 " & Text(ThisItem.返却予定日, "yyyy/mm/dd") & "（" & ThisItem.状態.Value & "）"
+            Width: =Parent.TemplateWidth - 16
+            X: =8

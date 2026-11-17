@@ -1,0 +1,150 @@
+# SCR-001 備品の一覧（画面 scrEquipment に、Power Apps Studio で Ctrl+V で貼り付ける部品）
+# 列はリストの表示名で参照する（管理番号・品名・区分・状態）。社員はリストを読むだけで、書き込みはフロー FLW-001 が行う。
+- rectHeader1:
+    Control: Rectangle@2.3.0
+    Properties:
+      Fill: =RGBA(0, 78, 120, 1)
+      Height: =72
+      Width: =Parent.Width
+- lblHeader1:
+    Control: Label@2.5.1
+    Properties:
+      Color: =RGBA(255, 255, 255, 1)
+      FontWeight: =FontWeight.Semibold
+      Height: =72
+      Size: =20
+      Text: ="備品の一覧"
+      Width: =600
+      X: =32
+- btnMine:
+    Control: Classic/Button@2.2.0
+    Properties:
+      DisplayMode: =If(varBusy, DisplayMode.Disabled, DisplayMode.Edit)
+      Fill: =RGBA(255, 255, 255, 1)
+      Color: =RGBA(0, 78, 120, 1)
+      Height: =44
+      Text: ="自分の貸出"
+      Width: =180
+      X: =Parent.Width - Self.Width - 32
+      Y: =14
+      OnSelect: |-
+        =Set(varBusy, true);
+        Set(varList, IfError('FLW-001利用者の操作'.Run("一覧"), {result: "エラー", message: "一覧を読めませんでした。時間をおいてもう一度お試しください。", data: "[]"}));
+        If(
+            varList.result = "ok",
+            ClearCollect(
+                colMine,
+                ForAll(
+                    Table(ParseJSON(varList.data)),
+                    {
+                        id: Value(ThisRecord.Value.id),
+                        equipment: Text(ThisRecord.Value.equipment),
+                        start: Text(ThisRecord.Value.start),
+                        due: Text(ThisRecord.Value.due),
+                        status: Text(ThisRecord.Value.status),
+                        note: Text(ThisRecord.Value.note)
+                    }
+                )
+            );
+            Navigate(scrMine),
+            Notify(varList.message, NotificationType.Error)
+        );
+        Set(varBusy, false)
+- btnRefreshList:
+    Control: Classic/Button@2.2.0
+    Properties:
+      DisplayMode: =If(varBusy, DisplayMode.Disabled, DisplayMode.Edit)
+      Height: =40
+      Text: ="最新の状態にする"
+      Width: =200
+      X: =Parent.Width - Self.Width - 32
+      Y: =96
+      OnSelect: |-
+        =Refresh(備品台帳);
+        Refresh(予約表)
+- ddCategory:
+    Control: Classic/DropDown@2.3.1
+    Properties:
+      Default: ="すべて"
+      Items: =["すべて", "ノートPC", "モニター", "プロジェクター", "タブレット", "その他"]
+      Width: =240
+      X: =32
+      Y: =96
+- txtSearch:
+    Control: Classic/TextInput@2.3.2
+    Properties:
+      Default: =""
+      HintText: ="管理番号・品名で検索"
+      Width: =360
+      X: =292
+      Y: =96
+- galEquipment:
+    Control: Gallery@2.15.0
+    Variant: BrowseLayout_Vertical_TwoTextOneImageVariant_ver5.0
+    Properties:
+      Height: =Parent.Height - Self.Y - 16
+      Items: |-
+        =SortByColumns(
+            Filter(
+                備品台帳,
+                (ddCategory.Selected.Value = "すべて" || 区分.Value = ddCategory.Selected.Value) &&
+                (IsBlank(txtSearch.Text) || txtSearch.Text in 管理番号 || txtSearch.Text in 品名)
+            ),
+            "Title"
+        )
+      TemplateSize: =72
+      Width: =Parent.Width - 64
+      X: =32
+      Y: =152
+    Children:
+      - lblCode:
+          Control: Label@2.5.1
+          Properties:
+            FontWeight: =FontWeight.Semibold
+            Height: =48
+            Size: =16
+            Text: =ThisItem.管理番号
+            Width: =140
+            X: =16
+            Y: =12
+      - lblName:
+          Control: Label@2.5.1
+          Properties:
+            Height: =48
+            Size: =14
+            Text: =ThisItem.品名 & "（" & ThisItem.区分.Value & "）"
+            Width: =520
+            X: =160
+            Y: =12
+      - lblStatus:
+          Control: Label@2.5.1
+          Properties:
+            Color: =Switch(ThisItem.状態.Value, "利用可", RGBA(16, 124, 16, 1), "修理中", RGBA(196, 89, 17, 1), RGBA(96, 94, 92, 1))
+            FontWeight: =FontWeight.Semibold
+            Height: =48
+            Size: =14
+            Text: =ThisItem.状態.Value
+            Width: =120
+            X: =700
+            Y: =12
+      - btnSelect:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Height: =40
+            Text: ="申請する"
+            Visible: =ThisItem.状態.Value = "利用可"
+            Width: =140
+            X: =Parent.TemplateWidth - Self.Width - 24
+            Y: =16
+            OnSelect: |-
+              =Set(varEquip, ThisItem);
+              Set(varResetApply, false);
+              Set(varResetApply, true);
+              Navigate(scrApply)
+      - sepEquipment:
+          Control: Rectangle@2.3.0
+          Properties:
+            Fill: =RGBA(225, 223, 221, 1)
+            Height: =1
+            Width: =Parent.TemplateWidth
+            Y: =Parent.TemplateHeight - 1

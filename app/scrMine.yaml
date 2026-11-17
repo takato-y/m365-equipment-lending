@@ -1,0 +1,159 @@
+# SCR-003 自分の貸出（画面 scrMine に貼り付ける部品）
+# 一覧は FLW-001 の「一覧」で本人の記録だけを受け取る（社員は貸出記録のリストを読めない）。返却・取消も FLW-001 が本人と状態を確かめてから行う。
+- rectHeader3:
+    Control: Rectangle@2.3.0
+    Properties:
+      Fill: =RGBA(0, 78, 120, 1)
+      Height: =72
+      Width: =Parent.Width
+- lblHeader3:
+    Control: Label@2.5.1
+    Properties:
+      Color: =RGBA(255, 255, 255, 1)
+      FontWeight: =FontWeight.Semibold
+      Height: =72
+      Size: =20
+      Text: ="自分の貸出"
+      Width: =600
+      X: =32
+- btnBack3:
+    Control: Classic/Button@2.2.0
+    Properties:
+      DisplayMode: =If(varBusy, DisplayMode.Disabled, DisplayMode.Edit)
+      Fill: =RGBA(255, 255, 255, 1)
+      Color: =RGBA(0, 78, 120, 1)
+      Height: =44
+      Text: ="一覧へ戻る"
+      Width: =180
+      X: =Parent.Width - Self.Width - 32
+      Y: =14
+      OnSelect: =Navigate(scrEquipment)
+- btnReload:
+    Control: Classic/Button@2.2.0
+    Properties:
+      DisplayMode: =If(varBusy, DisplayMode.Disabled, DisplayMode.Edit)
+      Height: =40
+      Text: ="最新の状態にする"
+      Width: =200
+      X: =32
+      Y: =88
+      OnSelect: |-
+        =Set(varBusy, true);
+        Set(varList, IfError('FLW-001利用者の操作'.Run("一覧"), {result: "エラー", message: "一覧を読めませんでした。時間をおいてもう一度お試しください。", data: "[]"}));
+        If(
+            varList.result = "ok",
+            ClearCollect(
+                colMine,
+                ForAll(
+                    Table(ParseJSON(varList.data)),
+                    {
+                        id: Value(ThisRecord.Value.id),
+                        equipment: Text(ThisRecord.Value.equipment),
+                        start: Text(ThisRecord.Value.start),
+                        due: Text(ThisRecord.Value.due),
+                        status: Text(ThisRecord.Value.status),
+                        note: Text(ThisRecord.Value.note)
+                    }
+                )
+            ),
+            Notify(varList.message, NotificationType.Error)
+        );
+        Set(varBusy, false)
+- lblEmpty:
+    Control: Label@2.5.1
+    Properties:
+      Text: ="申請・貸出の記録はありません。"
+      Visible: =IsEmpty(colMine)
+      Width: =400
+      X: =32
+      Y: =140
+- galMine:
+    Control: Gallery@2.15.0
+    Variant: BrowseLayout_Vertical_TwoTextOneImageVariant_ver5.0
+    Properties:
+      Height: =Parent.Height - Self.Y - 16
+      Items: =colMine
+      TemplateSize: =80
+      Width: =Parent.Width - 64
+      X: =32
+      Y: =140
+    Children:
+      - lblMineEquip:
+          Control: Label@2.5.1
+          Properties:
+            FontWeight: =FontWeight.Semibold
+            Height: =36
+            Size: =15
+            Text: =ThisItem.equipment
+            Width: =160
+            X: =16
+            Y: =8
+      - lblMinePeriod:
+          Control: Label@2.5.1
+          Properties:
+            Height: =36
+            Text: =ThisItem.start & " 〜 " & ThisItem.due
+            Width: =280
+            X: =180
+            Y: =8
+      - lblMineStatus:
+          Control: Label@2.5.1
+          Properties:
+            Color: =Switch(ThisItem.status, "貸出中", RGBA(0, 78, 120, 1), "却下", RGBA(164, 38, 44, 1), "期限切れ", RGBA(164, 38, 44, 1), RGBA(50, 49, 48, 1))
+            FontWeight: =FontWeight.Semibold
+            Height: =36
+            Text: =ThisItem.status
+            Width: =120
+            X: =470
+            Y: =8
+      - lblMineNote:
+          Control: Label@2.5.1
+          Properties:
+            Color: =RGBA(96, 94, 92, 1)
+            Height: =32
+            Size: =12
+            Text: =ThisItem.note
+            Width: =580
+            X: =16
+            Y: =44
+      - btnReturn:
+          Control: Classic/Button@2.2.0
+          Properties:
+            DisplayMode: =If(varBusy, DisplayMode.Disabled, DisplayMode.Edit)
+            Height: =40
+            Text: ="返却した"
+            Visible: =ThisItem.status = "貸出中"
+            Width: =140
+            X: =Parent.TemplateWidth - Self.Width - 24
+            Y: =20
+            OnSelect: |-
+              =Set(varBusy, true);
+              Set(varResp, IfError('FLW-001利用者の操作'.Run("返却", {number_1: ThisItem.id}), {result: "エラー", message: "処理に失敗しました。時間をおいてもう一度お試しください。", data: ""}));
+              Set(varBusy, false);
+              Notify(varResp.message, If(varResp.result = "ok", NotificationType.Success, NotificationType.Warning));
+              Select(btnReload)
+      - btnCancel:
+          Control: Classic/Button@2.2.0
+          Properties:
+            DisplayMode: =If(varBusy, DisplayMode.Disabled, DisplayMode.Edit)
+            Fill: =RGBA(255, 255, 255, 1)
+            Color: =RGBA(164, 38, 44, 1)
+            Height: =40
+            Text: ="取り消す"
+            Visible: =(ThisItem.status = "承認待ち" || ThisItem.status = "予約済み") && DateValue(ThisItem.start) > Today()
+            Width: =140
+            X: =Parent.TemplateWidth - Self.Width - 24
+            Y: =20
+            OnSelect: |-
+              =Set(varBusy, true);
+              Set(varResp, IfError('FLW-001利用者の操作'.Run("取消", {number_1: ThisItem.id}), {result: "エラー", message: "処理に失敗しました。時間をおいてもう一度お試しください。", data: ""}));
+              Set(varBusy, false);
+              Notify(varResp.message, If(varResp.result = "ok", NotificationType.Success, NotificationType.Warning));
+              Select(btnReload)
+      - sepMine:
+          Control: Rectangle@2.3.0
+          Properties:
+            Fill: =RGBA(225, 223, 221, 1)
+            Height: =1
+            Width: =Parent.TemplateWidth
+            Y: =Parent.TemplateHeight - 1
