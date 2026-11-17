@@ -28,7 +28,9 @@ jobs:
       - name: フローの定義の再生成と差分の確認
         run: |
           python3 tools/gen_flows.py
-          git diff --exit-code -- flows/
+          # 変わったファイルと、新しくできた未登録のファイルの両方を検出する
+          git status --porcelain -- flows/
+          test -z "$(git status --porcelain -- flows/)"
       # 定義から取り込み用の zip を作れること（値は架空の設定で埋める）
       - name: パッケージの作成
         run: |

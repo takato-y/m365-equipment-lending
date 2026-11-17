@@ -4,3 +4,8 @@ solution/*.zip
 # 手元の作業記録
 *.log
 __pycache__/
+# テナント固有の値の設定ファイルと、それで作った zip（公開しない）
+private/
+# CI・手元で作るパッケージ
+out/
+ci-config.json
