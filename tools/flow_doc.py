@@ -2,7 +2,7 @@
 """flows/*.json から、人が読むためのフロー設計書（docs/flows/FLW-00n.md）を作る。
 
 式や設定の全文は載せない（flows/*.json が正本）。全体図は大きな流れだけ、ステップ一覧は
-「No・ステップ・種類・実行条件・実行の記録」の5列にする。手で書く欄（目的・関連要件など）は INFO に持つ。
+「No・ステップ・種類・場所・実行条件・実行の記録」の6列にする。手で書く欄（目的・関連要件など）は INFO に持つ。
 
 使い方:
   python3 tools/flow_doc.py            # docs/flows/ に6本を書き出す
@@ -42,7 +42,8 @@ INFO = {
                     rerun="対応状況をもう一度保存し直す（同じ値でも動く）", dup="何度動いても同じ結果になる（TC-024）"),
 }
 
-# 自動で作る全体図では流れが伝わらないフローだけ、主な流れを手で書く（手順の名前は定義と合わせる）
+# 全体図は主な流れを手で書く（自動で全手順を描くと長すぎて読めないため）。
+# CI はステップ一覧が定義と一致することだけを確かめ、この図の中身は確かめない。gen_flows.py の処理を変えたら、ここも直す。
 DIAGRAMS = {
     "FLW-001": """flowchart TD
     T(["Power Apps から呼ぶ"]) --> A["呼び出した人を確定<br>（要求ヘッダー → SharePoint のユーザー ID）"]
@@ -59,10 +60,14 @@ DIAGRAMS = {
     T(["貸出記録が承認待ちになった"]) --> A["記録を読み直し、承認待ちで承認未開始か確認"]
     A --> B["承認開始日時を記録（ETag の照合つき）"]
     B --> C["承認を開始して待つ（最長7日）"]
-    C --> D{"結果"}
-    D -- 承認 --> E["まだ承認待ちか確認<br>申請者本人の承認なら却下"]
-    E --> F["予約済み／貸出中にし、申請者にメール・Teams にカード"]
-    D -- 却下 --> G["却下にし、申請者にメール"]
+    C --> D{"応答あり／期限切れ"}
+    D -- 応答あり --> W{"記録はまだ承認待ちか"}
+    W -- いいえ（取消済みなど） --> Z["結果を書かずに終わる"]
+    W -- はい --> R{"結果"}
+    R -- 承認 --> E{"応答者が申請者本人で、<br>自己承認を許可が「はい」以外"}
+    E -- いいえ --> F["予約済み／貸出中にし、申請者にメール・Teams にカード"]
+    E -- はい --> G["却下にし、申請者にメール"]
+    R -- 却下・応答者が分からない --> G
     D -- 期限切れ --> H["期限切れにし、申請者にメール"]
     X["失敗時：処理ログに記録し、管理者に知らせる"]""",
     "FLW-003": """flowchart TD
@@ -85,18 +90,19 @@ DIAGRAMS = {
     T(["毎月1日 9:00"]) --> A["前月（日本時間）の範囲を決める"]
     A --> B["前月の貸出記録と故障報告を読む"]
     B --> C["明細を作る（記録ID・管理番号・期間・状態・督促回数）<br>数式として動く値は先頭に ' を付ける"]
-    C --> D["CSV（UTF-8・BOM 付き）を月次レポートに保存（同じ月は上書き）"]
+    C --> D["CSV（UTF-8・BOM 付き）を月次レポートに保存<br>（同じ月は上書き。TC-026 で確認）"]
     D --> E["申請・貸出・延滞・故障の件数を管理者にメール"]
     X["失敗時：処理ログに記録し、管理者に知らせる"]""",
     "FLW-006": """flowchart TD
     T(["管理者が故障報告の対応状況を変えた"]) --> A["故障報告を読み直す"]
     A --> B{"対応状況"}
-    B -- 修理中 --> C["Planner のタスクを進行中にする"]
-    B -- 完了・対象外 --> D["Planner のタスクを完了にする"]
+    B -- 修理中 --> C["Planner のタスクを進行中にする<br>（タスクの ID があるとき）"]
+    B -- 完了・対象外 --> D["Planner のタスクを完了にする<br>（タスクの ID があるとき）"]
     C & D --> E["その備品の「修理中」の報告の件数を数える"]
-    E --> F{"件数"}
-    F -- 1件以上 --> G["備品台帳を修理中にする"]
-    F -- 0件 --> H["備品台帳を利用可に戻す"]
+    E --> F{"件数と、備品台帳の今の状態"}
+    F -- 1件以上で今が利用可 --> G["備品台帳を修理中にする"]
+    F -- 0件で今が修理中 --> H["備品台帳を利用可に戻す"]
+    F -- それ以外（廃棄など） --> I["変えない"]
     X["失敗時：処理ログに記録し、管理者に知らせる"]""",
 }
 
@@ -187,47 +193,6 @@ def rows(actions, where="", counter=None):
     return out
 
 
-def diagram(defn, trig_label):
-    """大きな流れだけの全体図（トリガー → 試行の中の主な手順 → 失敗時）"""
-    acts = defn["actions"]
-    lines = ["flowchart TD", f'    T(["{trig_label}"])']
-    prev = "T"
-    k = 0
-
-    def node(label, shape="box"):
-        nonlocal k
-        k += 1
-        nid = f"n{k}"
-        label = label.replace('"', "'")
-        lines.append(f'    {nid}{{"{label}"}}' if shape == "diamond" else f'    {nid}["{label}"]')
-        return nid
-
-    for name in ordered(acts):
-        a = acts[name]
-        if name == "試行":
-            lines.append('    subgraph S["試行（失敗したら「失敗時」へ）"]')
-            inner_prev = None
-            for sub in ordered(a.get("actions", {})):
-                sa = a["actions"][sub]
-                if sub.startswith("設定") or sub.endswith("の設定") and sa.get("type") == "SetVariable":
-                    continue
-                nid = node(sub, "diamond" if sa.get("type") in ("If", "Switch") else "box")
-                lines.append(f"    {inner_prev or prev} --> {nid}")
-                inner_prev = nid
-            lines.append("    end")
-            prev = inner_prev or prev
-        elif name == "失敗時":
-            nid = node("失敗時：処理ログに記録し、管理者に知らせる")
-            lines.append(f"    S -. 失敗 .-> {nid}")
-        elif a.get("type") in ("InitializeVariable", "Compose"):
-            continue
-        else:
-            nid = node(name)
-            lines.append(f"    {prev} --> {nid}")
-            prev = nid
-    return "\n".join(lines)
-
-
 def trigger_row(trig, info):
     t = trig.get("type")
     if t == "Request":
@@ -280,7 +245,7 @@ def build(flow_id):
 大きな流れだけを示す。条件・分岐・繰り返しの中の手順は、4章のステップ一覧に書く。
 
 ```mermaid
-{DIAGRAMS.get(flow_id) or diagram(defn, info['trig'].split('（')[0])}
+{DIAGRAMS[flow_id]}
 ```
 
 ## 3. トリガー
