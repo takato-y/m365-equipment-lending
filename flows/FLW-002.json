@@ -1,0 +1,1080 @@
+{
+  "displayName": "FLW-002 承認",
+  "description": "貸出記録が承認待ちになったら承認を依頼し、結果を記録して申請者に知らせる",
+  "connectors": [
+    "shared_sharepointonline",
+    "shared_approvals",
+    "shared_office365",
+    "shared_teams"
+  ],
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "$connections": {
+        "defaultValue": {},
+        "type": "Object"
+      },
+      "$authentication": {
+        "defaultValue": {},
+        "type": "SecureObject"
+      }
+    },
+    "triggers": {
+      "manual": {
+        "type": "OpenApiConnection",
+        "runtimeConfiguration": {
+          "secureData": {
+            "properties": [
+              "outputs"
+            ]
+          }
+        },
+        "recurrence": {
+          "interval": 1,
+          "frequency": "Minute"
+        },
+        "splitOn": "@triggerOutputs()?['body/value']",
+        "conditions": [
+          {
+            "expression": "@and(equals(triggerBody()?['LoanStatus']?['Value'], '承認待ち'), empty(triggerBody()?['ApprovalStartedAt']))"
+          }
+        ],
+        "inputs": {
+          "host": {
+            "connectionName": "shared_sharepointonline",
+            "operationId": "GetOnUpdatedItems",
+            "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+          },
+          "parameters": {
+            "dataset": "{{SITE_URL}}",
+            "table": "{{LIST_LOANS_ID}}"
+          },
+          "authentication": "@parameters('$authentication')"
+        }
+      }
+    },
+    "actions": {
+      "管理者メール": {
+        "runAfter": {},
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "管理者メール",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "今日": {
+        "runAfter": {
+          "管理者メール": [
+            "Succeeded"
+          ]
+        },
+        "type": "Compose",
+        "inputs": "@formatDateTime(convertFromUtc(utcNow(), 'Tokyo Standard Time'), 'yyyy-MM-dd')"
+      },
+      "試行": {
+        "type": "Scope",
+        "runAfter": {
+          "今日": [
+            "Succeeded"
+          ]
+        },
+        "actions": {
+          "設定の取得": {
+            "runAfter": {},
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "GET",
+                "parameters/uri": "_api/web/lists/getbytitle('設定')/items?$select=Title,SettingValue&$top=100",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=nometadata"
+                }
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          },
+          "設定の選択": {
+            "type": "Select",
+            "inputs": {
+              "from": "@body('設定の取得')?['value']",
+              "select": "@substring(string(setProperty(json('{}'), coalesce(item()?['Title'], ''), coalesce(item()?['SettingValue'], ''))), 1, sub(length(string(setProperty(json('{}'), coalesce(item()?['Title'], ''), coalesce(item()?['SettingValue'], '')))), 2))"
+            },
+            "runAfter": {
+              "設定の取得": [
+                "Succeeded"
+              ]
+            }
+          },
+          "設定": {
+            "runAfter": {
+              "設定の選択": [
+                "Succeeded"
+              ]
+            },
+            "type": "Compose",
+            "inputs": "@json(concat('{', join(body('設定の選択'), ','), '}'))"
+          },
+          "管理者メールの設定": {
+            "runAfter": {
+              "設定": [
+                "Succeeded"
+              ]
+            },
+            "type": "SetVariable",
+            "inputs": {
+              "name": "管理者メール",
+              "value": "@{coalesce(outputs('設定')?['管理者メール'], '')}"
+            }
+          },
+          "記録の読み直し": {
+            "runAfter": {
+              "管理者メールの設定": [
+                "Succeeded"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "GET",
+                "parameters/uri": "_api/web/lists/getbytitle('貸出記録')/items?$select=Id,LoanStatus,StartDate,DueDate,Purpose,ApprovalStartedAt,RequesterId,Equipment/Title,Requester/EMail,Requester/Title&$expand=Equipment,Requester&$filter=Id eq @{triggerBody()?['ID']}",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=minimalmetadata"
+                }
+              },
+              "authentication": "@parameters('$authentication')"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [
+                  "inputs",
+                  "outputs"
+                ]
+              }
+            }
+          },
+          "承認を始めてよい": {
+            "runAfter": {
+              "記録の読み直し": [
+                "Succeeded"
+              ]
+            },
+            "type": "If",
+            "expression": {
+              "and": [
+                {
+                  "equals": [
+                    "@first(body('記録の読み直し')?['value'])?['LoanStatus']",
+                    "承認待ち"
+                  ]
+                },
+                {
+                  "equals": [
+                    "@empty(first(body('記録の読み直し')?['value'])?['ApprovalStartedAt'])",
+                    true
+                  ]
+                }
+              ]
+            },
+            "actions": {
+              "承認開始の記録": {
+                "runAfter": {},
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": {
+                    "connectionName": "shared_sharepointonline",
+                    "operationId": "HttpRequest",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                  },
+                  "parameters": {
+                    "dataset": "{{SITE_URL}}",
+                    "parameters/method": "POST",
+                    "parameters/uri": "_api/web/lists/getbytitle('貸出記録')/items(@{triggerBody()?['ID']})",
+                    "parameters/headers": {
+                      "Accept": "application/json;odata=nometadata",
+                      "Content-Type": "application/json;odata=nometadata",
+                      "IF-MATCH": "@{first(body('記録の読み直し')?['value'])?['odata.etag']}",
+                      "X-HTTP-Method": "MERGE"
+                    },
+                    "parameters/body": "@string(setProperty(json('{}'), 'ApprovalStartedAt', utcNow()))"
+                  },
+                  "authentication": "@parameters('$authentication')"
+                }
+              },
+              "承認": {
+                "type": "OpenApiConnectionWebhook",
+                "limit": {
+                  "timeout": "P7D"
+                },
+                "inputs": {
+                  "host": {
+                    "connectionName": "shared_approvals",
+                    "operationId": "StartAndWaitForAnApproval",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_approvals"
+                  },
+                  "parameters": {
+                    "approvalType": "Basic",
+                    "WebhookApprovalCreationInput/title": "@{concat('【備品貸出】', first(body('記録の読み直し')?['value'])?['Equipment']?['Title'], ' ', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')))}",
+                    "WebhookApprovalCreationInput/assignedTo": "@{outputs('設定')?['承認者メール']}",
+                    "WebhookApprovalCreationInput/details": "@{concat('申請者：', replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(take(coalesce(first(body('記録の読み直し')?['value'])?['Requester']?['Title'], ''), 50), '[', '［'), ']', '］'), '(', '（'), ')', '）'), '<', '＜'), '>', '＞'), '*', '＊'), '_', '＿'), '#', '＃'), '`', '｀'), '|', '｜'), '\\', '＼'), '://', '[:]//'), 'www.', 'www[.]'), 'WWW.', 'WWW[.]'), decodeUriComponent('%0A'), ' '), decodeUriComponent('%0D'), ' '), decodeUriComponent('%0A%0A'), '期間：', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')), decodeUriComponent('%0A%0A'), '利用目的：', replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(take(coalesce(first(body('記録の読み直し')?['value'])?['Purpose'], ''), 200), '[', '［'), ']', '］'), '(', '（'), ')', '）'), '<', '＜'), '>', '＞'), '*', '＊'), '_', '＿'), '#', '＃'), '`', '｀'), '|', '｜'), '\\', '＼'), '://', '[:]//'), 'www.', 'www[.]'), 'WWW.', 'WWW[.]'), decodeUriComponent('%0A'), ' '), decodeUriComponent('%0D'), ' '))}",
+                    "WebhookApprovalCreationInput/enableNotifications": true,
+                    "WebhookApprovalCreationInput/enableReassignment": false
+                  },
+                  "authentication": "@parameters('$authentication')"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs",
+                      "outputs"
+                    ]
+                  }
+                },
+                "runAfter": {
+                  "承認開始の記録": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "承認の結果の処理": {
+                "runAfter": {
+                  "承認": [
+                    "Succeeded",
+                    "TimedOut"
+                  ]
+                },
+                "type": "If",
+                "expression": {
+                  "equals": [
+                    "@actions('承認')?['status']",
+                    "TimedOut"
+                  ]
+                },
+                "actions": {
+                  "期限後の読み直し": {
+                    "runAfter": {},
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "host": {
+                        "connectionName": "shared_sharepointonline",
+                        "operationId": "HttpRequest",
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                      },
+                      "parameters": {
+                        "dataset": "{{SITE_URL}}",
+                        "parameters/method": "GET",
+                        "parameters/uri": "_api/web/lists/getbytitle('貸出記録')/items?$select=Id,LoanStatus&$filter=Id eq @{triggerBody()?['ID']}",
+                        "parameters/headers": {
+                          "Accept": "application/json;odata=minimalmetadata"
+                        }
+                      },
+                      "authentication": "@parameters('$authentication')"
+                    }
+                  },
+                  "期限時もまだ承認待ち": {
+                    "runAfter": {
+                      "期限後の読み直し": [
+                        "Succeeded"
+                      ]
+                    },
+                    "type": "If",
+                    "expression": {
+                      "equals": [
+                        "@first(body('期限後の読み直し')?['value'])?['LoanStatus']",
+                        "承認待ち"
+                      ]
+                    },
+                    "actions": {
+                      "期限切れを記録": {
+                        "runAfter": {},
+                        "type": "OpenApiConnection",
+                        "inputs": {
+                          "host": {
+                            "connectionName": "shared_sharepointonline",
+                            "operationId": "HttpRequest",
+                            "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                          },
+                          "parameters": {
+                            "dataset": "{{SITE_URL}}",
+                            "parameters/method": "POST",
+                            "parameters/uri": "_api/web/lists/getbytitle('貸出記録')/items(@{triggerBody()?['ID']})",
+                            "parameters/headers": {
+                              "Accept": "application/json;odata=nometadata",
+                              "Content-Type": "application/json;odata=nometadata",
+                              "IF-MATCH": "@{first(body('期限後の読み直し')?['value'])?['odata.etag']}",
+                              "X-HTTP-Method": "MERGE"
+                            },
+                            "parameters/body": "@string(setProperty(setProperty(json('{}'), 'LoanStatus', '期限切れ'), 'ProcessNote', '承認の期限までに応答がなかった'))"
+                          },
+                          "authentication": "@parameters('$authentication')"
+                        }
+                      },
+                      "期限切れの予約表": {
+                        "runAfter": {
+                          "期限切れを記録": [
+                            "Succeeded"
+                          ]
+                        },
+                        "type": "OpenApiConnection",
+                        "inputs": {
+                          "host": {
+                            "connectionName": "shared_sharepointonline",
+                            "operationId": "HttpRequest",
+                            "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                          },
+                          "parameters": {
+                            "dataset": "{{SITE_URL}}",
+                            "parameters/method": "GET",
+                            "parameters/uri": "_api/web/lists/getbytitle('予約表')/items?$select=Id&$filter=Title eq '@{triggerBody()?['ID']}'",
+                            "parameters/headers": {
+                              "Accept": "application/json;odata=nometadata"
+                            }
+                          },
+                          "authentication": "@parameters('$authentication')"
+                        }
+                      },
+                      "期限切れの予約表をそろえる": {
+                        "type": "Foreach",
+                        "foreach": "@body('期限切れの予約表')?['value']",
+                        "actions": {
+                          "期限切れの予約の削除": {
+                            "runAfter": {},
+                            "type": "OpenApiConnection",
+                            "inputs": {
+                              "host": {
+                                "connectionName": "shared_sharepointonline",
+                                "operationId": "HttpRequest",
+                                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                              },
+                              "parameters": {
+                                "dataset": "{{SITE_URL}}",
+                                "parameters/method": "POST",
+                                "parameters/uri": "_api/web/lists/getbytitle('予約表')/items(@{items('期限切れの予約表をそろえる')?['Id']})",
+                                "parameters/headers": {
+                                  "Accept": "application/json;odata=nometadata",
+                                  "IF-MATCH": "*",
+                                  "X-HTTP-Method": "DELETE"
+                                }
+                              },
+                              "authentication": "@parameters('$authentication')"
+                            }
+                          }
+                        },
+                        "runAfter": {
+                          "期限切れの予約表": [
+                            "Succeeded"
+                          ]
+                        }
+                      },
+                      "期限切れのメール": {
+                        "runAfter": {
+                          "期限切れの予約表をそろえる": [
+                            "Succeeded"
+                          ]
+                        },
+                        "type": "OpenApiConnection",
+                        "inputs": {
+                          "host": {
+                            "connectionName": "shared_office365",
+                            "operationId": "SendEmailV2",
+                            "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+                          },
+                          "parameters": {
+                            "emailMessage/To": "@{first(body('記録の読み直し')?['value'])?['Requester']?['EMail']}",
+                            "emailMessage/Subject": "@{concat('【備品貸出】承認の期限が切れました：', first(body('記録の読み直し')?['value'])?['Equipment']?['Title'], ' ', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')))}",
+                            "emailMessage/Body": "<p>承認の期限までに応答がなかったため、申請を期限切れにしました。必要であれば、もう一度申請してください。</p><p>備品：@{first(body('記録の読み直し')?['value'])?['Equipment']?['Title']}<br>期間：@{concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'))}</p>",
+                            "emailMessage/Importance": "Normal"
+                          },
+                          "authentication": "@parameters('$authentication')"
+                        }
+                      }
+                    },
+                    "else": {
+                      "actions": {}
+                    }
+                  }
+                },
+                "else": {
+                  "actions": {
+                    "結果の前の読み直し": {
+                      "runAfter": {},
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "host": {
+                          "connectionName": "shared_sharepointonline",
+                          "operationId": "HttpRequest",
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                        },
+                        "parameters": {
+                          "dataset": "{{SITE_URL}}",
+                          "parameters/method": "GET",
+                          "parameters/uri": "_api/web/lists/getbytitle('貸出記録')/items?$select=Id,LoanStatus&$filter=Id eq @{triggerBody()?['ID']}",
+                          "parameters/headers": {
+                            "Accept": "application/json;odata=minimalmetadata"
+                          }
+                        },
+                        "authentication": "@parameters('$authentication')"
+                      }
+                    },
+                    "まだ承認待ち": {
+                      "runAfter": {
+                        "結果の前の読み直し": [
+                          "Succeeded"
+                        ]
+                      },
+                      "type": "If",
+                      "expression": {
+                        "equals": [
+                          "@first(body('結果の前の読み直し')?['value'])?['LoanStatus']",
+                          "承認待ち"
+                        ]
+                      },
+                      "actions": {
+                        "応答者あり": {
+                          "runAfter": {},
+                          "type": "If",
+                          "expression": {
+                            "not": {
+                              "equals": [
+                                "@toLower(coalesce(first(body('承認')?['responses'])?['responder']?['email'], ''))",
+                                ""
+                              ]
+                            }
+                          },
+                          "actions": {
+                            "応答者の確認": {
+                              "runAfter": {},
+                              "type": "OpenApiConnection",
+                              "inputs": {
+                                "host": {
+                                  "connectionName": "shared_sharepointonline",
+                                  "operationId": "HttpRequest",
+                                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                },
+                                "parameters": {
+                                  "dataset": "{{SITE_URL}}",
+                                  "parameters/method": "POST",
+                                  "parameters/uri": "_api/web/ensureuser",
+                                  "parameters/headers": {
+                                    "Accept": "application/json;odata=nometadata",
+                                    "Content-Type": "application/json;odata=nometadata"
+                                  },
+                                  "parameters/body": "@string(setProperty(json('{}'), 'logonName', concat('i:0#.f|membership|', toLower(coalesce(first(body('承認')?['responses'])?['responder']?['email'], '')))))"
+                                },
+                                "authentication": "@parameters('$authentication')"
+                              }
+                            },
+                            "結果の種類": {
+                              "type": "Switch",
+                              "expression": "@if(equals(body('承認')?['outcome'], 'Approve'), if(and(equals(int(body('応答者の確認')?['Id']), int(first(body('記録の読み直し')?['value'])?['RequesterId'])), not(equals(outputs('設定')?['自己承認を許可'], 'はい'))), '自己承認', '承認'), '却下')",
+                              "cases": {
+                                "承認": {
+                                  "case": "承認",
+                                  "actions": {
+                                    "承認後の状態": {
+                                      "runAfter": {},
+                                      "type": "Compose",
+                                      "inputs": "@if(lessOrEquals(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), outputs('今日')), '貸出中', '予約済み')"
+                                    },
+                                    "承認を記録": {
+                                      "runAfter": {
+                                        "承認後の状態": [
+                                          "Succeeded"
+                                        ]
+                                      },
+                                      "type": "OpenApiConnection",
+                                      "inputs": {
+                                        "host": {
+                                          "connectionName": "shared_sharepointonline",
+                                          "operationId": "HttpRequest",
+                                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                        },
+                                        "parameters": {
+                                          "dataset": "{{SITE_URL}}",
+                                          "parameters/method": "POST",
+                                          "parameters/uri": "_api/web/lists/getbytitle('貸出記録')/items(@{triggerBody()?['ID']})",
+                                          "parameters/headers": {
+                                            "Accept": "application/json;odata=nometadata",
+                                            "Content-Type": "application/json;odata=nometadata",
+                                            "IF-MATCH": "@{first(body('結果の前の読み直し')?['value'])?['odata.etag']}",
+                                            "X-HTTP-Method": "MERGE"
+                                          },
+                                          "parameters/body": "@string(setProperty(setProperty(setProperty(setProperty(json('{}'), 'LoanStatus', outputs('承認後の状態')), 'ApproverId', body('応答者の確認')?['Id']), 'ApprovalComment', take(coalesce(first(body('承認')?['responses'])?['comments'], ''), 500)), 'ApprovedAt', utcNow()))"
+                                        },
+                                        "authentication": "@parameters('$authentication')"
+                                      }
+                                    },
+                                    "承認の予約表": {
+                                      "runAfter": {
+                                        "承認を記録": [
+                                          "Succeeded"
+                                        ]
+                                      },
+                                      "type": "OpenApiConnection",
+                                      "inputs": {
+                                        "host": {
+                                          "connectionName": "shared_sharepointonline",
+                                          "operationId": "HttpRequest",
+                                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                        },
+                                        "parameters": {
+                                          "dataset": "{{SITE_URL}}",
+                                          "parameters/method": "GET",
+                                          "parameters/uri": "_api/web/lists/getbytitle('予約表')/items?$select=Id&$filter=Title eq '@{triggerBody()?['ID']}'",
+                                          "parameters/headers": {
+                                            "Accept": "application/json;odata=nometadata"
+                                          }
+                                        },
+                                        "authentication": "@parameters('$authentication')"
+                                      }
+                                    },
+                                    "承認の予約表をそろえる": {
+                                      "type": "Foreach",
+                                      "foreach": "@body('承認の予約表')?['value']",
+                                      "actions": {
+                                        "承認の予約の更新": {
+                                          "runAfter": {},
+                                          "type": "OpenApiConnection",
+                                          "inputs": {
+                                            "host": {
+                                              "connectionName": "shared_sharepointonline",
+                                              "operationId": "HttpRequest",
+                                              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                            },
+                                            "parameters": {
+                                              "dataset": "{{SITE_URL}}",
+                                              "parameters/method": "POST",
+                                              "parameters/uri": "_api/web/lists/getbytitle('予約表')/items(@{items('承認の予約表をそろえる')?['Id']})",
+                                              "parameters/headers": {
+                                                "Accept": "application/json;odata=nometadata",
+                                                "Content-Type": "application/json;odata=nometadata",
+                                                "IF-MATCH": "*",
+                                                "X-HTTP-Method": "MERGE"
+                                              },
+                                              "parameters/body": "@string(setProperty(json('{}'), 'LoanStatus', outputs('承認後の状態')))"
+                                            },
+                                            "authentication": "@parameters('$authentication')"
+                                          }
+                                        }
+                                      },
+                                      "runAfter": {
+                                        "承認の予約表": [
+                                          "Succeeded"
+                                        ]
+                                      }
+                                    },
+                                    "承認のメール": {
+                                      "runAfter": {
+                                        "承認の予約表をそろえる": [
+                                          "Succeeded"
+                                        ]
+                                      },
+                                      "type": "OpenApiConnection",
+                                      "inputs": {
+                                        "host": {
+                                          "connectionName": "shared_office365",
+                                          "operationId": "SendEmailV2",
+                                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+                                        },
+                                        "parameters": {
+                                          "emailMessage/To": "@{first(body('記録の読み直し')?['value'])?['Requester']?['EMail']}",
+                                          "emailMessage/Subject": "@{concat('【備品貸出】承認されました：', first(body('記録の読み直し')?['value'])?['Equipment']?['Title'], ' ', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')))}",
+                                          "emailMessage/Body": "<p>貸出の申請が承認されました。</p><p>備品：@{first(body('記録の読み直し')?['value'])?['Equipment']?['Title']}<br>期間：@{concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'))}<br>状態：@{outputs('承認後の状態')}</p><p>承認者のコメント：@{replace(replace(replace(replace(take(coalesce(coalesce(first(body('承認')?['responses'])?['comments'], ''), ''), 200), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '://', '[:]//')}</p>",
+                                          "emailMessage/Importance": "Normal"
+                                        },
+                                        "authentication": "@parameters('$authentication')"
+                                      }
+                                    },
+                                    "承認の通知": {
+                                      "runAfter": {
+                                        "承認のメール": [
+                                          "Succeeded"
+                                        ]
+                                      },
+                                      "type": "OpenApiConnection",
+                                      "inputs": {
+                                        "host": {
+                                          "connectionName": "shared_teams",
+                                          "operationId": "PostCardToConversation",
+                                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams"
+                                        },
+                                        "parameters": {
+                                          "poster": "Flow bot",
+                                          "location": "Channel",
+                                          "body/recipient/groupId": "{{TEAM_ID}}",
+                                          "body/recipient/channelId": "{{CHANNEL_ID}}",
+                                          "body/messageBody": "@string(setProperty(setProperty(setProperty(json('{}'), 'type', 'AdaptiveCard'), 'version', '1.4'), 'body', createArray(setProperty(setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('承認：', first(body('記録の読み直し')?['value'])?['Equipment']?['Title'])), 'weight', 'Bolder'), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('期間：', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')))), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('申請者：', replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(take(coalesce(first(body('記録の読み直し')?['value'])?['Requester']?['Title'], ''), 50), '[', '［'), ']', '］'), '(', '（'), ')', '）'), '<', '＜'), '>', '＞'), '*', '＊'), '_', '＿'), '#', '＃'), '`', '｀'), '|', '｜'), '\\', '＼'), '://', '[:]//'), 'www.', 'www[.]'), 'WWW.', 'WWW[.]'), decodeUriComponent('%0A'), ' '), decodeUriComponent('%0D'), ' '))), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('状態：', outputs('承認後の状態'))), 'wrap', true))))"
+                                        },
+                                        "authentication": "@parameters('$authentication')"
+                                      }
+                                    }
+                                  }
+                                },
+                                "自己承認": {
+                                  "case": "自己承認",
+                                  "actions": {
+                                    "自己承認を記録": {
+                                      "runAfter": {},
+                                      "type": "OpenApiConnection",
+                                      "inputs": {
+                                        "host": {
+                                          "connectionName": "shared_sharepointonline",
+                                          "operationId": "HttpRequest",
+                                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                        },
+                                        "parameters": {
+                                          "dataset": "{{SITE_URL}}",
+                                          "parameters/method": "POST",
+                                          "parameters/uri": "_api/web/lists/getbytitle('貸出記録')/items(@{triggerBody()?['ID']})",
+                                          "parameters/headers": {
+                                            "Accept": "application/json;odata=nometadata",
+                                            "Content-Type": "application/json;odata=nometadata",
+                                            "IF-MATCH": "@{first(body('結果の前の読み直し')?['value'])?['odata.etag']}",
+                                            "X-HTTP-Method": "MERGE"
+                                          },
+                                          "parameters/body": "@string(setProperty(setProperty(setProperty(setProperty(json('{}'), 'LoanStatus', '却下'), 'ApprovalComment', take('申請者本人による承認は受け付けていません', 500)), 'ApprovedAt', utcNow()), 'ApproverId', body('応答者の確認')?['Id']))"
+                                        },
+                                        "authentication": "@parameters('$authentication')"
+                                      }
+                                    },
+                                    "自己承認の予約表": {
+                                      "runAfter": {
+                                        "自己承認を記録": [
+                                          "Succeeded"
+                                        ]
+                                      },
+                                      "type": "OpenApiConnection",
+                                      "inputs": {
+                                        "host": {
+                                          "connectionName": "shared_sharepointonline",
+                                          "operationId": "HttpRequest",
+                                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                        },
+                                        "parameters": {
+                                          "dataset": "{{SITE_URL}}",
+                                          "parameters/method": "GET",
+                                          "parameters/uri": "_api/web/lists/getbytitle('予約表')/items?$select=Id&$filter=Title eq '@{triggerBody()?['ID']}'",
+                                          "parameters/headers": {
+                                            "Accept": "application/json;odata=nometadata"
+                                          }
+                                        },
+                                        "authentication": "@parameters('$authentication')"
+                                      }
+                                    },
+                                    "自己承認の予約表をそろえる": {
+                                      "type": "Foreach",
+                                      "foreach": "@body('自己承認の予約表')?['value']",
+                                      "actions": {
+                                        "自己承認の予約の削除": {
+                                          "runAfter": {},
+                                          "type": "OpenApiConnection",
+                                          "inputs": {
+                                            "host": {
+                                              "connectionName": "shared_sharepointonline",
+                                              "operationId": "HttpRequest",
+                                              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                            },
+                                            "parameters": {
+                                              "dataset": "{{SITE_URL}}",
+                                              "parameters/method": "POST",
+                                              "parameters/uri": "_api/web/lists/getbytitle('予約表')/items(@{items('自己承認の予約表をそろえる')?['Id']})",
+                                              "parameters/headers": {
+                                                "Accept": "application/json;odata=nometadata",
+                                                "IF-MATCH": "*",
+                                                "X-HTTP-Method": "DELETE"
+                                              }
+                                            },
+                                            "authentication": "@parameters('$authentication')"
+                                          }
+                                        }
+                                      },
+                                      "runAfter": {
+                                        "自己承認の予約表": [
+                                          "Succeeded"
+                                        ]
+                                      }
+                                    },
+                                    "自己承認のメール": {
+                                      "runAfter": {
+                                        "自己承認の予約表をそろえる": [
+                                          "Succeeded"
+                                        ]
+                                      },
+                                      "type": "OpenApiConnection",
+                                      "inputs": {
+                                        "host": {
+                                          "connectionName": "shared_office365",
+                                          "operationId": "SendEmailV2",
+                                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+                                        },
+                                        "parameters": {
+                                          "emailMessage/To": "@{first(body('記録の読み直し')?['value'])?['Requester']?['EMail']}",
+                                          "emailMessage/Subject": "@{concat('【備品貸出】却下されました：', first(body('記録の読み直し')?['value'])?['Equipment']?['Title'], ' ', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')))}",
+                                          "emailMessage/Body": "<p>申請者本人による承認は受け付けていないため、却下としました。別の承認者に依頼してください。</p><p>備品：@{first(body('記録の読み直し')?['value'])?['Equipment']?['Title']}<br>期間：@{concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'))}</p><p>コメント：@{replace(replace(replace(replace(take(coalesce('申請者本人による承認は受け付けていません', ''), 200), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '://', '[:]//')}</p>",
+                                          "emailMessage/Importance": "Normal"
+                                        },
+                                        "authentication": "@parameters('$authentication')"
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              "default": {
+                                "actions": {
+                                  "却下を記録": {
+                                    "runAfter": {},
+                                    "type": "OpenApiConnection",
+                                    "inputs": {
+                                      "host": {
+                                        "connectionName": "shared_sharepointonline",
+                                        "operationId": "HttpRequest",
+                                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                      },
+                                      "parameters": {
+                                        "dataset": "{{SITE_URL}}",
+                                        "parameters/method": "POST",
+                                        "parameters/uri": "_api/web/lists/getbytitle('貸出記録')/items(@{triggerBody()?['ID']})",
+                                        "parameters/headers": {
+                                          "Accept": "application/json;odata=nometadata",
+                                          "Content-Type": "application/json;odata=nometadata",
+                                          "IF-MATCH": "@{first(body('結果の前の読み直し')?['value'])?['odata.etag']}",
+                                          "X-HTTP-Method": "MERGE"
+                                        },
+                                        "parameters/body": "@string(setProperty(setProperty(setProperty(setProperty(json('{}'), 'LoanStatus', '却下'), 'ApprovalComment', take(coalesce(first(body('承認')?['responses'])?['comments'], ''), 500)), 'ApprovedAt', utcNow()), 'ApproverId', body('応答者の確認')?['Id']))"
+                                      },
+                                      "authentication": "@parameters('$authentication')"
+                                    }
+                                  },
+                                  "却下の予約表": {
+                                    "runAfter": {
+                                      "却下を記録": [
+                                        "Succeeded"
+                                      ]
+                                    },
+                                    "type": "OpenApiConnection",
+                                    "inputs": {
+                                      "host": {
+                                        "connectionName": "shared_sharepointonline",
+                                        "operationId": "HttpRequest",
+                                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                      },
+                                      "parameters": {
+                                        "dataset": "{{SITE_URL}}",
+                                        "parameters/method": "GET",
+                                        "parameters/uri": "_api/web/lists/getbytitle('予約表')/items?$select=Id&$filter=Title eq '@{triggerBody()?['ID']}'",
+                                        "parameters/headers": {
+                                          "Accept": "application/json;odata=nometadata"
+                                        }
+                                      },
+                                      "authentication": "@parameters('$authentication')"
+                                    }
+                                  },
+                                  "却下の予約表をそろえる": {
+                                    "type": "Foreach",
+                                    "foreach": "@body('却下の予約表')?['value']",
+                                    "actions": {
+                                      "却下の予約の削除": {
+                                        "runAfter": {},
+                                        "type": "OpenApiConnection",
+                                        "inputs": {
+                                          "host": {
+                                            "connectionName": "shared_sharepointonline",
+                                            "operationId": "HttpRequest",
+                                            "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                          },
+                                          "parameters": {
+                                            "dataset": "{{SITE_URL}}",
+                                            "parameters/method": "POST",
+                                            "parameters/uri": "_api/web/lists/getbytitle('予約表')/items(@{items('却下の予約表をそろえる')?['Id']})",
+                                            "parameters/headers": {
+                                              "Accept": "application/json;odata=nometadata",
+                                              "IF-MATCH": "*",
+                                              "X-HTTP-Method": "DELETE"
+                                            }
+                                          },
+                                          "authentication": "@parameters('$authentication')"
+                                        }
+                                      }
+                                    },
+                                    "runAfter": {
+                                      "却下の予約表": [
+                                        "Succeeded"
+                                      ]
+                                    }
+                                  },
+                                  "却下のメール": {
+                                    "runAfter": {
+                                      "却下の予約表をそろえる": [
+                                        "Succeeded"
+                                      ]
+                                    },
+                                    "type": "OpenApiConnection",
+                                    "inputs": {
+                                      "host": {
+                                        "connectionName": "shared_office365",
+                                        "operationId": "SendEmailV2",
+                                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+                                      },
+                                      "parameters": {
+                                        "emailMessage/To": "@{first(body('記録の読み直し')?['value'])?['Requester']?['EMail']}",
+                                        "emailMessage/Subject": "@{concat('【備品貸出】却下されました：', first(body('記録の読み直し')?['value'])?['Equipment']?['Title'], ' ', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')))}",
+                                        "emailMessage/Body": "<p>貸出の申請が却下されました。</p><p>備品：@{first(body('記録の読み直し')?['value'])?['Equipment']?['Title']}<br>期間：@{concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'))}</p><p>コメント：@{replace(replace(replace(replace(take(coalesce(coalesce(first(body('承認')?['responses'])?['comments'], ''), ''), 200), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '://', '[:]//')}</p>",
+                                        "emailMessage/Importance": "Normal"
+                                      },
+                                      "authentication": "@parameters('$authentication')"
+                                    }
+                                  }
+                                }
+                              },
+                              "runAfter": {
+                                "応答者の確認": [
+                                  "Succeeded"
+                                ]
+                              }
+                            }
+                          },
+                          "else": {
+                            "actions": {
+                              "応答者不明を記録": {
+                                "runAfter": {},
+                                "type": "OpenApiConnection",
+                                "inputs": {
+                                  "host": {
+                                    "connectionName": "shared_sharepointonline",
+                                    "operationId": "HttpRequest",
+                                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                  },
+                                  "parameters": {
+                                    "dataset": "{{SITE_URL}}",
+                                    "parameters/method": "POST",
+                                    "parameters/uri": "_api/web/lists/getbytitle('貸出記録')/items(@{triggerBody()?['ID']})",
+                                    "parameters/headers": {
+                                      "Accept": "application/json;odata=nometadata",
+                                      "Content-Type": "application/json;odata=nometadata",
+                                      "IF-MATCH": "@{first(body('結果の前の読み直し')?['value'])?['odata.etag']}",
+                                      "X-HTTP-Method": "MERGE"
+                                    },
+                                    "parameters/body": "@string(setProperty(setProperty(setProperty(json('{}'), 'LoanStatus', '却下'), 'ApprovalComment', take('承認した人を確認できませんでした', 500)), 'ApprovedAt', utcNow()))"
+                                  },
+                                  "authentication": "@parameters('$authentication')"
+                                }
+                              },
+                              "応答者不明の予約表": {
+                                "runAfter": {
+                                  "応答者不明を記録": [
+                                    "Succeeded"
+                                  ]
+                                },
+                                "type": "OpenApiConnection",
+                                "inputs": {
+                                  "host": {
+                                    "connectionName": "shared_sharepointonline",
+                                    "operationId": "HttpRequest",
+                                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                  },
+                                  "parameters": {
+                                    "dataset": "{{SITE_URL}}",
+                                    "parameters/method": "GET",
+                                    "parameters/uri": "_api/web/lists/getbytitle('予約表')/items?$select=Id&$filter=Title eq '@{triggerBody()?['ID']}'",
+                                    "parameters/headers": {
+                                      "Accept": "application/json;odata=nometadata"
+                                    }
+                                  },
+                                  "authentication": "@parameters('$authentication')"
+                                }
+                              },
+                              "応答者不明の予約表をそろえる": {
+                                "type": "Foreach",
+                                "foreach": "@body('応答者不明の予約表')?['value']",
+                                "actions": {
+                                  "応答者不明の予約の削除": {
+                                    "runAfter": {},
+                                    "type": "OpenApiConnection",
+                                    "inputs": {
+                                      "host": {
+                                        "connectionName": "shared_sharepointonline",
+                                        "operationId": "HttpRequest",
+                                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                                      },
+                                      "parameters": {
+                                        "dataset": "{{SITE_URL}}",
+                                        "parameters/method": "POST",
+                                        "parameters/uri": "_api/web/lists/getbytitle('予約表')/items(@{items('応答者不明の予約表をそろえる')?['Id']})",
+                                        "parameters/headers": {
+                                          "Accept": "application/json;odata=nometadata",
+                                          "IF-MATCH": "*",
+                                          "X-HTTP-Method": "DELETE"
+                                        }
+                                      },
+                                      "authentication": "@parameters('$authentication')"
+                                    }
+                                  }
+                                },
+                                "runAfter": {
+                                  "応答者不明の予約表": [
+                                    "Succeeded"
+                                  ]
+                                }
+                              },
+                              "応答者不明のメール": {
+                                "runAfter": {
+                                  "応答者不明の予約表をそろえる": [
+                                    "Succeeded"
+                                  ]
+                                },
+                                "type": "OpenApiConnection",
+                                "inputs": {
+                                  "host": {
+                                    "connectionName": "shared_office365",
+                                    "operationId": "SendEmailV2",
+                                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+                                  },
+                                  "parameters": {
+                                    "emailMessage/To": "@{first(body('記録の読み直し')?['value'])?['Requester']?['EMail']}",
+                                    "emailMessage/Subject": "@{concat('【備品貸出】却下されました：', first(body('記録の読み直し')?['value'])?['Equipment']?['Title'], ' ', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')))}",
+                                    "emailMessage/Body": "<p>承認した人を確認できなかったため、却下としました。管理者に連絡してください。</p><p>備品：@{first(body('記録の読み直し')?['value'])?['Equipment']?['Title']}<br>期間：@{concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'))}</p><p>コメント：@{replace(replace(replace(replace(take(coalesce('承認した人を確認できませんでした', ''), 200), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '://', '[:]//')}</p>",
+                                    "emailMessage/Importance": "Normal"
+                                  },
+                                  "authentication": "@parameters('$authentication')"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "else": {
+                        "actions": {}
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "else": {
+              "actions": {}
+            }
+          }
+        }
+      },
+      "失敗時": {
+        "type": "Scope",
+        "runAfter": {
+          "試行": [
+            "Failed",
+            "TimedOut"
+          ]
+        },
+        "actions": {
+          "失敗した手順": {
+            "runAfter": {},
+            "type": "Query",
+            "inputs": {
+              "from": "@result('試行')",
+              "where": "@equals(item()?['status'], 'Failed')"
+            }
+          },
+          "失敗の要約": {
+            "runAfter": {
+              "失敗した手順": [
+                "Succeeded"
+              ]
+            },
+            "type": "Select",
+            "inputs": {
+              "from": "@body('失敗した手順')",
+              "select": "@concat(item()?['name'], ':', coalesce(item()?['code'], ''))"
+            }
+          },
+          "処理ログに記録": {
+            "runAfter": {
+              "失敗の要約": [
+                "Succeeded",
+                "Failed",
+                "Skipped",
+                "TimedOut"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "POST",
+                "parameters/uri": "_api/web/lists/getbytitle('処理ログ')/items",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=nometadata",
+                  "Content-Type": "application/json;odata=nometadata"
+                },
+                "parameters/body": "@string(setProperty(setProperty(setProperty(setProperty(setProperty(json('{}'), 'Title', 'FLW-002 承認'), 'Target', concat('貸出記録ID=', string(coalesce(triggerBody()?['ID'], 0)))), 'Result', '失敗'), 'Detail', take(join(body('失敗の要約'), ', '), 1000)), 'RunLink', setProperty(setProperty(json('{}'), 'Url', concat('https://make.powerautomate.com/environments/', workflow()?['tags']?['environmentName'], '/flows/', workflow()?['name'], '/runs/', workflow()?['run']?['name'])), 'Description', '実行の記録')))"
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          },
+          "管理者に知らせる": {
+            "runAfter": {
+              "処理ログに記録": [
+                "Succeeded",
+                "Failed",
+                "Skipped",
+                "TimedOut"
+              ]
+            },
+            "type": "If",
+            "expression": {
+              "not": {
+                "equals": [
+                  "@variables('管理者メール')",
+                  ""
+                ]
+              }
+            },
+            "actions": {
+              "管理者へのメール": {
+                "runAfter": {},
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": {
+                    "connectionName": "shared_office365",
+                    "operationId": "SendEmailV2",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+                  },
+                  "parameters": {
+                    "emailMessage/To": "@variables('管理者メール')",
+                    "emailMessage/Subject": "【備品貸出】処理に失敗しました（FLW-002 承認）",
+                    "emailMessage/Body": "<p>FLW-002 承認で、処理に失敗しました。処理ログの最新の行と、実行の記録を確かめてください。</p>",
+                    "emailMessage/Importance": "Normal"
+                  },
+                  "authentication": "@parameters('$authentication')"
+                }
+              }
+            },
+            "else": {
+              "actions": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}

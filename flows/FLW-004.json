@@ -1,0 +1,446 @@
+{
+  "displayName": "FLW-004 故障の受付",
+  "description": "Forms の故障・不具合の報告を、故障報告リストと Planner の確認のタスクにし、Teams に知らせる",
+  "connectors": [
+    "shared_sharepointonline",
+    "shared_microsoftforms",
+    "shared_planner",
+    "shared_teams",
+    "shared_office365"
+  ],
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "$connections": {
+        "defaultValue": {},
+        "type": "Object"
+      },
+      "$authentication": {
+        "defaultValue": {},
+        "type": "SecureObject"
+      }
+    },
+    "triggers": {
+      "manual": {
+        "type": "OpenApiConnectionWebhook",
+        "runtimeConfiguration": {
+          "secureData": {
+            "properties": [
+              "outputs"
+            ]
+          }
+        },
+        "splitOn": "@triggerOutputs()?['body/value']",
+        "inputs": {
+          "host": {
+            "connectionName": "shared_microsoftforms",
+            "operationId": "CreateFormWebhook",
+            "apiId": "/providers/Microsoft.PowerApps/apis/shared_microsoftforms"
+          },
+          "parameters": {
+            "form_id": "{{FORM_ID}}"
+          },
+          "authentication": "@parameters('$authentication')"
+        }
+      }
+    },
+    "actions": {
+      "管理者メール": {
+        "runAfter": {},
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "管理者メール",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "今日": {
+        "runAfter": {
+          "管理者メール": [
+            "Succeeded"
+          ]
+        },
+        "type": "Compose",
+        "inputs": "@formatDateTime(convertFromUtc(utcNow(), 'Tokyo Standard Time'), 'yyyy-MM-dd')"
+      },
+      "試行": {
+        "type": "Scope",
+        "runAfter": {
+          "今日": [
+            "Succeeded"
+          ]
+        },
+        "actions": {
+          "設定の取得": {
+            "runAfter": {},
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "GET",
+                "parameters/uri": "_api/web/lists/getbytitle('設定')/items?$select=Title,SettingValue&$top=100",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=nometadata"
+                }
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          },
+          "設定の選択": {
+            "type": "Select",
+            "inputs": {
+              "from": "@body('設定の取得')?['value']",
+              "select": "@substring(string(setProperty(json('{}'), coalesce(item()?['Title'], ''), coalesce(item()?['SettingValue'], ''))), 1, sub(length(string(setProperty(json('{}'), coalesce(item()?['Title'], ''), coalesce(item()?['SettingValue'], '')))), 2))"
+            },
+            "runAfter": {
+              "設定の取得": [
+                "Succeeded"
+              ]
+            }
+          },
+          "設定": {
+            "runAfter": {
+              "設定の選択": [
+                "Succeeded"
+              ]
+            },
+            "type": "Compose",
+            "inputs": "@json(concat('{', join(body('設定の選択'), ','), '}'))"
+          },
+          "管理者メールの設定": {
+            "runAfter": {
+              "設定": [
+                "Succeeded"
+              ]
+            },
+            "type": "SetVariable",
+            "inputs": {
+              "name": "管理者メール",
+              "value": "@{coalesce(outputs('設定')?['管理者メール'], '')}"
+            }
+          },
+          "回答の詳細": {
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_microsoftforms",
+                "operationId": "GetFormResponseById",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_microsoftforms"
+              },
+              "parameters": {
+                "form_id": "{{FORM_ID}}",
+                "response_id": "@triggerOutputs()?['body/resourceData/responseId']"
+              },
+              "authentication": "@parameters('$authentication')"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [
+                  "inputs",
+                  "outputs"
+                ]
+              }
+            },
+            "runAfter": {
+              "管理者メールの設定": [
+                "Succeeded"
+              ]
+            }
+          },
+          "管理番号": {
+            "runAfter": {
+              "回答の詳細": [
+                "Succeeded"
+              ]
+            },
+            "type": "Compose",
+            "inputs": "@toUpper(take(trim(coalesce(body('回答の詳細')?['{{Q_CODE}}'], '')), 20))"
+          },
+          "備品の取得": {
+            "runAfter": {
+              "管理番号": [
+                "Succeeded"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "GET",
+                "parameters/uri": "_api/web/lists/getbytitle('備品台帳')/items?$select=Id,Title&$filter=Title eq '@{encodeUriComponent(replace(outputs('管理番号'), '''', ''''''))}'",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=nometadata"
+                }
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          },
+          "報告者の確認": {
+            "runAfter": {
+              "備品の取得": [
+                "Succeeded",
+                "Failed",
+                "Skipped",
+                "TimedOut"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "POST",
+                "parameters/uri": "_api/web/ensureuser",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=nometadata",
+                  "Content-Type": "application/json;odata=nometadata"
+                },
+                "parameters/body": "@string(setProperty(json('{}'), 'logonName', concat('i:0#.f|membership|', toLower(coalesce(body('回答の詳細')?['responder'], '')))))"
+              },
+              "authentication": "@parameters('$authentication')"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [
+                  "inputs",
+                  "outputs"
+                ]
+              }
+            }
+          },
+          "故障報告の作成": {
+            "runAfter": {
+              "報告者の確認": [
+                "Succeeded",
+                "Failed",
+                "Skipped",
+                "TimedOut"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "POST",
+                "parameters/uri": "_api/web/lists/getbytitle('故障報告')/items",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=nometadata",
+                  "Content-Type": "application/json;odata=nometadata"
+                },
+                "parameters/body": "@string(setProperty(setProperty(setProperty(setProperty(setProperty(json('{}'), 'Title', concat(outputs('管理番号'), ' ', outputs('今日'))), 'EquipmentId', if(and(equals(actions('備品の取得')?['status'], 'Succeeded'), equals(length(coalesce(body('備品の取得')?['value'], json('[]'))), 1)), first(body('備品の取得')?['value'])?['Id'], null)), 'ReporterId', if(equals(actions('報告者の確認')?['status'], 'Succeeded'), body('報告者の確認')?['Id'], null)), 'Detail', take(coalesce(body('回答の詳細')?['{{Q_DETAIL}}'], ''), 1000)), 'FaultStatus', '確認待ち'))"
+              },
+              "authentication": "@parameters('$authentication')"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [
+                  "inputs",
+                  "outputs"
+                ]
+              }
+            }
+          },
+          "確認のタスク": {
+            "runAfter": {
+              "故障報告の作成": [
+                "Succeeded"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_planner",
+                "operationId": "CreateTask_V3",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner"
+              },
+              "parameters": {
+                "body/groupId": "{{TEAM_ID}}",
+                "body/planId": "{{PLAN_ID}}",
+                "body/bucketId": "{{BUCKET_ID}}",
+                "body/title": "@{concat('【確認待ち】', outputs('管理番号'), ' 故障報告ID ', string(body('故障報告の作成')?['Id']))}"
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          },
+          "タスクIDを記録": {
+            "runAfter": {
+              "確認のタスク": [
+                "Succeeded"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "POST",
+                "parameters/uri": "_api/web/lists/getbytitle('故障報告')/items(@{body('故障報告の作成')?['Id']})",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=nometadata",
+                  "Content-Type": "application/json;odata=nometadata",
+                  "IF-MATCH": "@{'*'}",
+                  "X-HTTP-Method": "MERGE"
+                },
+                "parameters/body": "@string(setProperty(json('{}'), 'PlannerTaskId', body('確認のタスク')?['id']))"
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          },
+          "故障の通知": {
+            "runAfter": {
+              "タスクIDを記録": [
+                "Succeeded"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_teams",
+                "operationId": "PostCardToConversation",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams"
+              },
+              "parameters": {
+                "poster": "Flow bot",
+                "location": "Channel",
+                "body/recipient/groupId": "{{TEAM_ID}}",
+                "body/recipient/channelId": "{{CHANNEL_ID}}",
+                "body/messageBody": "@string(setProperty(setProperty(setProperty(json('{}'), 'type', 'AdaptiveCard'), 'version', '1.4'), 'body', createArray(setProperty(setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('故障の報告を受け付けました：', replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(take(coalesce(outputs('管理番号'), ''), 20), '[', '［'), ']', '］'), '(', '（'), ')', '）'), '<', '＜'), '>', '＞'), '*', '＊'), '_', '＿'), '#', '＃'), '`', '｀'), '|', '｜'), '\\', '＼'), '://', '[:]//'), 'www.', 'www[.]'), 'WWW.', 'WWW[.]'), decodeUriComponent('%0A'), ' '), decodeUriComponent('%0D'), ' '))), 'weight', 'Bolder'), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('対応：', '故障報告リストと Planner「備品の修理対応」で確認してください')), 'wrap', true))))"
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          }
+        }
+      },
+      "失敗時": {
+        "type": "Scope",
+        "runAfter": {
+          "試行": [
+            "Failed",
+            "TimedOut"
+          ]
+        },
+        "actions": {
+          "失敗した手順": {
+            "runAfter": {},
+            "type": "Query",
+            "inputs": {
+              "from": "@result('試行')",
+              "where": "@equals(item()?['status'], 'Failed')"
+            }
+          },
+          "失敗の要約": {
+            "runAfter": {
+              "失敗した手順": [
+                "Succeeded"
+              ]
+            },
+            "type": "Select",
+            "inputs": {
+              "from": "@body('失敗した手順')",
+              "select": "@concat(item()?['name'], ':', coalesce(item()?['code'], ''))"
+            }
+          },
+          "処理ログに記録": {
+            "runAfter": {
+              "失敗の要約": [
+                "Succeeded",
+                "Failed",
+                "Skipped",
+                "TimedOut"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "POST",
+                "parameters/uri": "_api/web/lists/getbytitle('処理ログ')/items",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=nometadata",
+                  "Content-Type": "application/json;odata=nometadata"
+                },
+                "parameters/body": "@string(setProperty(setProperty(setProperty(setProperty(setProperty(json('{}'), 'Title', 'FLW-004 故障の受付'), 'Target', 'Forms の回答'), 'Result', '失敗'), 'Detail', take(join(body('失敗の要約'), ', '), 1000)), 'RunLink', setProperty(setProperty(json('{}'), 'Url', concat('https://make.powerautomate.com/environments/', workflow()?['tags']?['environmentName'], '/flows/', workflow()?['name'], '/runs/', workflow()?['run']?['name'])), 'Description', '実行の記録')))"
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          },
+          "管理者に知らせる": {
+            "runAfter": {
+              "処理ログに記録": [
+                "Succeeded",
+                "Failed",
+                "Skipped",
+                "TimedOut"
+              ]
+            },
+            "type": "If",
+            "expression": {
+              "not": {
+                "equals": [
+                  "@variables('管理者メール')",
+                  ""
+                ]
+              }
+            },
+            "actions": {
+              "管理者へのメール": {
+                "runAfter": {},
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": {
+                    "connectionName": "shared_office365",
+                    "operationId": "SendEmailV2",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+                  },
+                  "parameters": {
+                    "emailMessage/To": "@variables('管理者メール')",
+                    "emailMessage/Subject": "【備品貸出】処理に失敗しました（FLW-004 故障の受付）",
+                    "emailMessage/Body": "<p>FLW-004 故障の受付で、処理に失敗しました。処理ログの最新の行と、実行の記録を確かめてください。</p>",
+                    "emailMessage/Importance": "Normal"
+                  },
+                  "authentication": "@parameters('$authentication')"
+                }
+              }
+            },
+            "else": {
+              "actions": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}

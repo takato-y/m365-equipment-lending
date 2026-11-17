@@ -1,0 +1,423 @@
+{
+  "displayName": "FLW-005 月次の集計",
+  "description": "毎月1日9時に前月の申請・貸出・延滞・故障の件数を集計し、明細の CSV を保存して管理者に知らせる",
+  "connectors": [
+    "shared_sharepointonline",
+    "shared_office365",
+    "shared_teams"
+  ],
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "$connections": {
+        "defaultValue": {},
+        "type": "Object"
+      },
+      "$authentication": {
+        "defaultValue": {},
+        "type": "SecureObject"
+      }
+    },
+    "triggers": {
+      "manual": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Month",
+          "interval": 1,
+          "timeZone": "Tokyo Standard Time",
+          "schedule": {
+            "monthDays": [
+              1
+            ],
+            "hours": [
+              "9"
+            ],
+            "minutes": [
+              0
+            ]
+          }
+        }
+      }
+    },
+    "actions": {
+      "管理者メール": {
+        "runAfter": {},
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "管理者メール",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "今日": {
+        "runAfter": {
+          "管理者メール": [
+            "Succeeded"
+          ]
+        },
+        "type": "Compose",
+        "inputs": "@formatDateTime(convertFromUtc(utcNow(), 'Tokyo Standard Time'), 'yyyy-MM-dd')"
+      },
+      "試行": {
+        "type": "Scope",
+        "runAfter": {
+          "今日": [
+            "Succeeded"
+          ]
+        },
+        "actions": {
+          "設定の取得": {
+            "runAfter": {},
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "GET",
+                "parameters/uri": "_api/web/lists/getbytitle('設定')/items?$select=Title,SettingValue&$top=100",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=nometadata"
+                }
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          },
+          "設定の選択": {
+            "type": "Select",
+            "inputs": {
+              "from": "@body('設定の取得')?['value']",
+              "select": "@substring(string(setProperty(json('{}'), coalesce(item()?['Title'], ''), coalesce(item()?['SettingValue'], ''))), 1, sub(length(string(setProperty(json('{}'), coalesce(item()?['Title'], ''), coalesce(item()?['SettingValue'], '')))), 2))"
+            },
+            "runAfter": {
+              "設定の取得": [
+                "Succeeded"
+              ]
+            }
+          },
+          "設定": {
+            "runAfter": {
+              "設定の選択": [
+                "Succeeded"
+              ]
+            },
+            "type": "Compose",
+            "inputs": "@json(concat('{', join(body('設定の選択'), ','), '}'))"
+          },
+          "管理者メールの設定": {
+            "runAfter": {
+              "設定": [
+                "Succeeded"
+              ]
+            },
+            "type": "SetVariable",
+            "inputs": {
+              "name": "管理者メール",
+              "value": "@{coalesce(outputs('設定')?['管理者メール'], '')}"
+            }
+          },
+          "対象の月": {
+            "runAfter": {
+              "管理者メールの設定": [
+                "Succeeded"
+              ]
+            },
+            "type": "Compose",
+            "inputs": {
+              "from": "@formatDateTime(addToTime(startOfMonth(convertFromUtc(utcNow(), 'Tokyo Standard Time')), -1, 'Month'), 'yyyy-MM-dd')",
+              "to": "@formatDateTime(startOfMonth(convertFromUtc(utcNow(), 'Tokyo Standard Time')), 'yyyy-MM-dd')",
+              "label": "@{substring(formatDateTime(addToTime(startOfMonth(convertFromUtc(utcNow(), 'Tokyo Standard Time')), -1, 'Month'), 'yyyy-MM-dd'), 0, 7)}"
+            }
+          },
+          "前月の貸出": {
+            "runAfter": {
+              "対象の月": [
+                "Succeeded"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "GET",
+                "parameters/uri": "_api/web/lists/getbytitle('貸出記録')/items?$select=Id,LoanStatus,StartDate,DueDate,ReturnedDate,ReminderCount,Equipment/Title&$expand=Equipment&$top=5000&$filter=StartDate ge datetime'@{convertToUtc(concat(outputs('対象の月')?['from'], 'T00:00:00'), 'Tokyo Standard Time', 'yyyy-MM-ddTHH:mm:ssZ')}' and StartDate lt datetime'@{convertToUtc(concat(outputs('対象の月')?['to'], 'T00:00:00'), 'Tokyo Standard Time', 'yyyy-MM-ddTHH:mm:ssZ')}'",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=minimalmetadata"
+                }
+              },
+              "authentication": "@parameters('$authentication')"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [
+                  "inputs",
+                  "outputs"
+                ]
+              }
+            }
+          },
+          "前月の故障": {
+            "runAfter": {
+              "前月の貸出": [
+                "Succeeded"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "GET",
+                "parameters/uri": "_api/web/lists/getbytitle('故障報告')/items?$select=Id&$top=5000&$filter=Created ge datetime'@{convertToUtc(concat(outputs('対象の月')?['from'], 'T00:00:00'), 'Tokyo Standard Time', 'yyyy-MM-ddTHH:mm:ssZ')}' and Created lt datetime'@{convertToUtc(concat(outputs('対象の月')?['to'], 'T00:00:00'), 'Tokyo Standard Time', 'yyyy-MM-ddTHH:mm:ssZ')}'",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=nometadata"
+                }
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          },
+          "明細": {
+            "type": "Select",
+            "inputs": {
+              "from": "@body('前月の貸出')?['value']",
+              "select": {
+                "記録ID": "@item()?['Id']",
+                "管理番号": "@if(or(startsWith(coalesce(item()?['Equipment']?['Title'], ''), '='), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '+'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '-'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '@')), concat('''', coalesce(item()?['Equipment']?['Title'], '')), coalesce(item()?['Equipment']?['Title'], ''))",
+                "貸出開始日": "@formatDateTime(convertFromUtc(item()?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')",
+                "返却予定日": "@formatDateTime(convertFromUtc(item()?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')",
+                "状態": "@item()?['LoanStatus']",
+                "督促回数": "@coalesce(item()?['ReminderCount'], 0)"
+              }
+            },
+            "runAfter": {
+              "前月の故障": [
+                "Succeeded"
+              ]
+            }
+          },
+          "CSV": {
+            "type": "Table",
+            "inputs": {
+              "from": "@body('明細')",
+              "format": "CSV"
+            },
+            "runAfter": {
+              "明細": [
+                "Succeeded"
+              ]
+            }
+          },
+          "実際の貸出": {
+            "type": "Query",
+            "inputs": {
+              "from": "@body('前月の貸出')?['value']",
+              "where": "@or(equals(item()?['LoanStatus'], '貸出中'), equals(item()?['LoanStatus'], '返却済み'))"
+            },
+            "runAfter": {
+              "CSV": [
+                "Succeeded"
+              ]
+            }
+          },
+          "延滞あり": {
+            "type": "Query",
+            "inputs": {
+              "from": "@body('前月の貸出')?['value']",
+              "where": "@greater(int(coalesce(item()?['ReminderCount'], 0)), 0)"
+            },
+            "runAfter": {
+              "実際の貸出": [
+                "Succeeded"
+              ]
+            }
+          },
+          "ファイルの保存": {
+            "type": "OpenApiConnection",
+            "runtimeConfiguration": {
+              "contentTransfer": {
+                "transferMode": "Chunked"
+              }
+            },
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "CreateFile",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "folderPath": "/MonthlyReports",
+                "name": "@{concat('貸出_', outputs('対象の月')?['label'], '.csv')}",
+                "body": "@concat(decodeUriComponent('%EF%BB%BF'), if(empty(body('明細')), concat('記録ID,管理番号,貸出開始日,返却予定日,状態,督促回数', decodeUriComponent('%0D%0A')), body('CSV')))"
+              },
+              "authentication": "@parameters('$authentication')"
+            },
+            "runAfter": {
+              "延滞あり": [
+                "Succeeded"
+              ]
+            }
+          },
+          "集計のメール": {
+            "runAfter": {
+              "ファイルの保存": [
+                "Succeeded"
+              ]
+            },
+            "type": "If",
+            "expression": {
+              "not": {
+                "equals": [
+                  "@variables('管理者メール')",
+                  ""
+                ]
+              }
+            },
+            "actions": {
+              "管理者への集計": {
+                "runAfter": {},
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": {
+                    "connectionName": "shared_office365",
+                    "operationId": "SendEmailV2",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+                  },
+                  "parameters": {
+                    "emailMessage/To": "@variables('管理者メール')",
+                    "emailMessage/Subject": "@{concat('【備品貸出】月次の集計（', outputs('対象の月')?['label'], '）')}",
+                    "emailMessage/Body": "<p>@{outputs('対象の月')?['label']} の集計です。</p><ul><li>申請の件数：@{length(body('前月の貸出')?['value'])}</li><li>貸出の件数（貸出中・返却済み）：@{length(body('実際の貸出'))}</li><li>延滞の件数（督促あり）：@{length(body('延滞あり'))}</li><li>故障の報告の件数：@{length(body('前月の故障')?['value'])}</li></ul><p>明細は、チームのサイトの「月次レポート」に CSV で保存しました。</p>",
+                    "emailMessage/Importance": "Normal"
+                  },
+                  "authentication": "@parameters('$authentication')"
+                }
+              }
+            },
+            "else": {
+              "actions": {}
+            }
+          }
+        }
+      },
+      "失敗時": {
+        "type": "Scope",
+        "runAfter": {
+          "試行": [
+            "Failed",
+            "TimedOut"
+          ]
+        },
+        "actions": {
+          "失敗した手順": {
+            "runAfter": {},
+            "type": "Query",
+            "inputs": {
+              "from": "@result('試行')",
+              "where": "@equals(item()?['status'], 'Failed')"
+            }
+          },
+          "失敗の要約": {
+            "runAfter": {
+              "失敗した手順": [
+                "Succeeded"
+              ]
+            },
+            "type": "Select",
+            "inputs": {
+              "from": "@body('失敗した手順')",
+              "select": "@concat(item()?['name'], ':', coalesce(item()?['code'], ''))"
+            }
+          },
+          "処理ログに記録": {
+            "runAfter": {
+              "失敗の要約": [
+                "Succeeded",
+                "Failed",
+                "Skipped",
+                "TimedOut"
+              ]
+            },
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "shared_sharepointonline",
+                "operationId": "HttpRequest",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "{{SITE_URL}}",
+                "parameters/method": "POST",
+                "parameters/uri": "_api/web/lists/getbytitle('処理ログ')/items",
+                "parameters/headers": {
+                  "Accept": "application/json;odata=nometadata",
+                  "Content-Type": "application/json;odata=nometadata"
+                },
+                "parameters/body": "@string(setProperty(setProperty(setProperty(setProperty(setProperty(json('{}'), 'Title', 'FLW-005 月次の集計'), 'Target', '毎月の処理'), 'Result', '失敗'), 'Detail', take(join(body('失敗の要約'), ', '), 1000)), 'RunLink', setProperty(setProperty(json('{}'), 'Url', concat('https://make.powerautomate.com/environments/', workflow()?['tags']?['environmentName'], '/flows/', workflow()?['name'], '/runs/', workflow()?['run']?['name'])), 'Description', '実行の記録')))"
+              },
+              "authentication": "@parameters('$authentication')"
+            }
+          },
+          "管理者に知らせる": {
+            "runAfter": {
+              "処理ログに記録": [
+                "Succeeded",
+                "Failed",
+                "Skipped",
+                "TimedOut"
+              ]
+            },
+            "type": "If",
+            "expression": {
+              "not": {
+                "equals": [
+                  "@variables('管理者メール')",
+                  ""
+                ]
+              }
+            },
+            "actions": {
+              "管理者へのメール": {
+                "runAfter": {},
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": {
+                    "connectionName": "shared_office365",
+                    "operationId": "SendEmailV2",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+                  },
+                  "parameters": {
+                    "emailMessage/To": "@variables('管理者メール')",
+                    "emailMessage/Subject": "【備品貸出】処理に失敗しました（FLW-005 月次の集計）",
+                    "emailMessage/Body": "<p>FLW-005 月次の集計で、処理に失敗しました。処理ログの最新の行と、実行の記録を確かめてください。</p>",
+                    "emailMessage/Importance": "Normal"
+                  },
+                  "authentication": "@parameters('$authentication')"
+                }
+              }
+            },
+            "else": {
+              "actions": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}
