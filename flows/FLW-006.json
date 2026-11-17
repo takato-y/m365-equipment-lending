@@ -4,8 +4,7 @@
   "connectors": [
     "shared_sharepointonline",
     "shared_planner",
-    "shared_office365",
-    "shared_teams"
+    "shared_office365"
   ],
   "definition": {
     "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
@@ -524,6 +523,14 @@
                     "emailMessage/Importance": "Normal"
                   },
                   "authentication": "@parameters('$authentication')"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs",
+                      "outputs"
+                    ]
+                  }
                 }
               }
             },

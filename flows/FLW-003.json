@@ -273,7 +273,7 @@
               }
             }
           },
-          "前日のお知らせと督促": {
+          "前日のお知らせ": {
             "type": "Scope",
             "runAfter": {
               "開始日の切り替え": [
@@ -349,6 +349,14 @@
                         "emailMessage/Importance": "Normal"
                       },
                       "authentication": "@parameters('$authentication')"
+                    },
+                    "runtimeConfiguration": {
+                      "secureData": {
+                        "properties": [
+                          "inputs",
+                          "outputs"
+                        ]
+                      }
                     }
                   },
                   "お知らせ済みにする": {
@@ -385,15 +393,56 @@
                     "Succeeded"
                   ]
                 }
+              }
+            }
+          },
+          "督促": {
+            "type": "Scope",
+            "runAfter": {
+              "前日のお知らせ": [
+                "Succeeded",
+                "Failed",
+                "Skipped",
+                "TimedOut"
+              ]
+            },
+            "actions": {
+              "督促対象の取得": {
+                "runAfter": {},
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": {
+                    "connectionName": "shared_sharepointonline",
+                    "operationId": "HttpRequest",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                  },
+                  "parameters": {
+                    "dataset": "{{SITE_URL}}",
+                    "parameters/method": "GET",
+                    "parameters/uri": "_api/web/lists/getbytitle('貸出記録')/items?$select=Id,LoanStatus,StartDate,DueDate,ReminderCount,LastNotifiedDate,ApprovalStartedAt,Created,Equipment/Title,Requester/EMail,Requester/Title&$expand=Equipment,Requester&$top=500&$filter=LoanStatus eq '貸出中'",
+                    "parameters/headers": {
+                      "Accept": "application/json;odata=minimalmetadata"
+                    }
+                  },
+                  "authentication": "@parameters('$authentication')"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs",
+                      "outputs"
+                    ]
+                  }
+                }
               },
               "期限切れ": {
                 "type": "Query",
                 "inputs": {
-                  "from": "@body('貸出中の取得')?['value']",
+                  "from": "@body('督促対象の取得')?['value']",
                   "where": "@and(less(formatDateTime(convertFromUtc(item()?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), outputs('今日')), not(equals(formatDateTime(convertFromUtc(coalesce(item()?['LastNotifiedDate'], '1900-01-01T00:00:00Z'), 'Tokyo Standard Time'), 'yyyy-MM-dd'), outputs('今日'))), less(int(coalesce(item()?['ReminderCount'], 0)), int(if(empty(outputs('設定')?['督促上限回数']), '5', outputs('設定')?['督促上限回数']))))"
                 },
                 "runAfter": {
-                  "前日のお知らせごと": [
+                  "督促対象の取得": [
                     "Succeeded"
                   ]
                 }
@@ -432,6 +481,14 @@
                         "emailMessage/Importance": "Normal"
                       },
                       "authentication": "@parameters('$authentication')"
+                    },
+                    "runtimeConfiguration": {
+                      "secureData": {
+                        "properties": [
+                          "inputs",
+                          "outputs"
+                        ]
+                      }
                     }
                   },
                   "督促を記録": {
@@ -504,6 +561,14 @@
                                 "emailMessage/Importance": "Normal"
                               },
                               "authentication": "@parameters('$authentication')"
+                            },
+                            "runtimeConfiguration": {
+                              "secureData": {
+                                "properties": [
+                                  "inputs",
+                                  "outputs"
+                                ]
+                              }
                             }
                           }
                         },
@@ -529,9 +594,17 @@
                             "location": "Channel",
                             "body/recipient/groupId": "{{TEAM_ID}}",
                             "body/recipient/channelId": "{{CHANNEL_ID}}",
-                            "body/messageBody": "@string(setProperty(setProperty(setProperty(json('{}'), 'type', 'AdaptiveCard'), 'version', '1.4'), 'body', createArray(setProperty(setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('督促が上限に達しました：', items('督促ごと')?['Equipment']?['Title'])), 'weight', 'Bolder'), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('申請者：', replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(take(coalesce(items('督促ごと')?['Requester']?['Title'], ''), 50), '[', '［'), ']', '］'), '(', '（'), ')', '）'), '<', '＜'), '>', '＞'), '*', '＊'), '_', '＿'), '#', '＃'), '`', '｀'), '|', '｜'), '\\', '＼'), '://', '[:]//'), 'www.', 'www[.]'), 'WWW.', 'WWW[.]'), decodeUriComponent('%0A'), ' '), decodeUriComponent('%0D'), ' '))), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('返却予定日：', formatDateTime(convertFromUtc(items('督促ごと')?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'))), 'wrap', true))))"
+                            "body/messageBody": "@string(setProperty(setProperty(setProperty(json('{}'), 'type', 'AdaptiveCard'), 'version', '1.4'), 'body', createArray(setProperty(setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('督促が上限に達しました：', items('督促ごと')?['Equipment']?['Title'])), 'weight', 'Bolder'), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('貸出記録ID：', string(items('督促ごと')?['Id']))), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('返却予定日：', formatDateTime(convertFromUtc(items('督促ごと')?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'))), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('対応：', '貸出記録リスト（所有者だけが読める）で、この ID の申請者に連絡してください')), 'wrap', true))))"
                           },
                           "authentication": "@parameters('$authentication')"
+                        },
+                        "runtimeConfiguration": {
+                          "secureData": {
+                            "properties": [
+                              "inputs",
+                              "outputs"
+                            ]
+                          }
                         }
                       }
                     },
@@ -548,10 +621,10 @@
               }
             }
           },
-          "止まった記録の後始末": {
+          "止まった承認待ちの後始末": {
             "type": "Scope",
             "runAfter": {
-              "前日のお知らせと督促": [
+              "督促": [
                 "Succeeded",
                 "Failed",
                 "Skipped",
@@ -709,6 +782,14 @@
                         "emailMessage/Importance": "Normal"
                       },
                       "authentication": "@parameters('$authentication')"
+                    },
+                    "runtimeConfiguration": {
+                      "secureData": {
+                        "properties": [
+                          "inputs",
+                          "outputs"
+                        ]
+                      }
                     }
                   }
                 },
@@ -717,13 +798,22 @@
                     "Succeeded"
                   ]
                 }
-              },
+              }
+            }
+          },
+          "作りかけの後始末": {
+            "type": "Scope",
+            "runAfter": {
+              "止まった承認待ちの後始末": [
+                "Succeeded",
+                "Failed",
+                "Skipped",
+                "TimedOut"
+              ]
+            },
+            "actions": {
               "確認中の取得": {
-                "runAfter": {
-                  "止まった承認待ちごと": [
-                    "Succeeded"
-                  ]
-                },
+                "runAfter": {},
                 "type": "OpenApiConnection",
                 "inputs": {
                   "host": {
@@ -893,13 +983,25 @@
                 },
                 {
                   "equals": [
-                    "@actions('前日のお知らせと督促')?['status']",
+                    "@actions('前日のお知らせ')?['status']",
                     "Failed"
                   ]
                 },
                 {
                   "equals": [
-                    "@actions('止まった記録の後始末')?['status']",
+                    "@actions('督促')?['status']",
+                    "Failed"
+                  ]
+                },
+                {
+                  "equals": [
+                    "@actions('止まった承認待ちの後始末')?['status']",
+                    "Failed"
+                  ]
+                },
+                {
+                  "equals": [
+                    "@actions('作りかけの後始末')?['status']",
                     "Failed"
                   ]
                 },
@@ -996,6 +1098,14 @@
                         "emailMessage/Importance": "Normal"
                       },
                       "authentication": "@parameters('$authentication')"
+                    },
+                    "runtimeConfiguration": {
+                      "secureData": {
+                        "properties": [
+                          "inputs",
+                          "outputs"
+                        ]
+                      }
                     }
                   }
                 },

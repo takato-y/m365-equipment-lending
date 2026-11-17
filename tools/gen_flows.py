@@ -214,7 +214,7 @@ def prologue():
         ("新しい記録ID", init_var("新しい記録ID", "integer", 0)),
         ("管理者メール", init_var("管理者メール", "string", "")),
         # 呼び出したユーザー（アプリから渡す値は使わない。Power Apps のトリガーが付ける要求の情報。要検証）
-        ("呼び出し元", compose("@toLower(coalesce(triggerOutputs()?['headers']?['x-ms-user-email'], ''))")),
+        ("呼び出し元", secure(compose("@toLower(coalesce(triggerOutputs()?['headers']?['x-ms-user-email'], ''))"))),
         ("今日", compose(f"@formatDateTime(convertFromUtc(utcNow(), '{TZ}'), 'yyyy-MM-dd')")),
     ]
 
@@ -233,8 +233,8 @@ def settings_steps():
 
 
 def outlook_mail(to_expr, subject, body_html, run_after=None):
-    """Office 365 Outlook「メールの送信 (V2)」"""
-    return {
+    """Office 365 Outlook「メールの送信 (V2)」。宛先・氏名・コメントを実行の記録に残さないよう、入力・出力を隠す"""
+    return secure({
         "runAfter": run_after or {},
         "type": "OpenApiConnection",
         "inputs": {
@@ -242,7 +242,7 @@ def outlook_mail(to_expr, subject, body_html, run_after=None):
             "parameters": {"emailMessage/To": to_expr, "emailMessage/Subject": subject, "emailMessage/Body": body_html, "emailMessage/Importance": "Normal"},
             "authentication": "@parameters('$authentication')",
         },
-    }
+    })
 
 
 ANY_END = ("Succeeded", "Failed", "Skipped", "TimedOut")
@@ -420,7 +420,7 @@ def flw001():
                 {"not": {"equals": [f"@{CALLER}", ""]}},
                 chain(
                     # 呼び出した人を SharePoint のユーザーとして確定し、以後はその ID（整数）で本人を判定する
-                    ("利用者の確認", sp_http("POST", "_api/web/ensureuser", body={"logonName": f"@{{concat('i:0#.f|membership|', {CALLER})}}"})),
+                    ("利用者の確認", secure(sp_http("POST", "_api/web/ensureuser", body={"logonName": f"@{{concat('i:0#.f|membership|', {CALLER})}}"}))),
                     # 解決したユーザーのメール・UPN が、呼び出し元と一致するときだけ進める（別のアカウントに解決されるのを防ぐ）
                     ("利用者の一致", cond(
                         {"or": [
@@ -540,7 +540,7 @@ def teams_card(title_expr, lines, run_after=None):
         "body": [{"type": "TextBlock", "text": title_expr, "weight": "Bolder", "wrap": True}]
                 + [{"type": "TextBlock", "text": f"@{{concat({_quote(label + '：')}, {expr})}}", "wrap": True} for label, expr in lines],
     }
-    return {
+    return secure({
         "runAfter": run_after or {},
         "type": "OpenApiConnection",
         "inputs": {
@@ -552,7 +552,7 @@ def teams_card(title_expr, lines, run_after=None):
             },
             "authentication": "@parameters('$authentication')",
         },
-    }
+    })
 
 
 def catch_block(flow_label, extra_first=None, target_expr="@{concat('貸出記録ID=', string(coalesce(triggerBody()?['ID'], 0)))}"):
@@ -621,18 +621,18 @@ def flw002():
 
     approved = chain(
         ("承認後の状態", compose(f"@if(lessOrEquals({start_jst}, {TODAY}), '貸出中', '予約済み')")),
-        ("承認を記録", sp_merge("貸出記録", loan_id, f"{rec2}?['odata.etag']", {
+        ("承認を記録", secure(sp_merge("貸出記録", loan_id, f"{rec2}?['odata.etag']", {
             "LoanStatus": "@{outputs('承認後の状態')}",
             "ApproverId": "@{body('応答者の確認')?['Id']}",
             "ApprovalComment": f"@{{take({comment}, 500)}}",
             "ApprovedAt": "@{utcNow()}",
-        })),
+        }))),
         *reservation_update("承認", "@{outputs('承認後の状態')}"),
         ("承認のメール", mail_requester(
             f"@{{concat('【備品貸出】承認されました：', {equip}, ' ', {period})}}",
             f"<p>貸出の申請が承認されました。</p><p>備品：@{{{equip}}}<br>期間：@{{{period}}}<br>状態：@{{outputs('承認後の状態')}}</p>"
             f"<p>承認者のコメント：@{{{html_safe(comment)}}}</p>")),
-        ("承認の通知", teams_card("@{concat('承認：', " + equip + ")}", [("期間", period), ("申請者", md_safe(f"{rec}?['Requester']?['Title']", 50)), ("状態", "outputs('承認後の状態')")])),
+        ("承認の通知", teams_card("@{concat('承認：', " + equip + ")}", [("期間", period), ("状態", "outputs('承認後の状態')")])),
     )
 
     def rejected(prefix, status, note_expr, subject_word, body_text, with_approver=False):
@@ -640,7 +640,7 @@ def flw002():
         if with_approver:  # 応答者を確定できた分岐の中でだけ、承認者（却下した人）を記録する
             fields["ApproverId"] = "@{body('応答者の確認')?['Id']}"
         return chain(
-            (f"{prefix}を記録", sp_merge("貸出記録", loan_id, f"{rec2}?['odata.etag']", fields)),
+            (f"{prefix}を記録", secure(sp_merge("貸出記録", loan_id, f"{rec2}?['odata.etag']", fields))),
             *reservation_update(prefix),
             (f"{prefix}のメール", mail_requester(
                 f"@{{concat('【備品貸出】{subject_word}：', {equip}, ' ', {period})}}",
@@ -656,7 +656,7 @@ def flw002():
             {"応答者あり": cond(
                 {"not": {"equals": [f"@{responder}", ""]}},
                 chain(
-                    ("応答者の確認", sp_http("POST", "_api/web/ensureuser", body={"logonName": f"@{{concat('i:0#.f|membership|', {responder})}}"})),
+                    ("応答者の確認", secure(sp_http("POST", "_api/web/ensureuser", body={"logonName": f"@{{concat('i:0#.f|membership|', {responder})}}"}))),
                     ("結果の種類", {
                         "type": "Switch",
                         "expression": f"@if(equals({approval}?['outcome'], 'Approve'), if({self_ng}, '自己承認', '承認'), '却下')",
@@ -806,7 +806,8 @@ def flw003():
     cur_b = "items('前日のお知らせごと')"
     cur_c = "items('督促ごと')"
     limit = f"int(if(empty({SETTING}?['督促上限回数']), '5', {SETTING}?['督促上限回数']))"
-    part_bc = [
+    lent_c = "body('督促対象の取得')?['value']"
+    part_b = [
         ("貸出中の取得", secure(sp_http("GET", f"_api/web/lists/getbytitle('貸出記録')/items?{select}&$filter=LoanStatus eq '貸出中'", accept=JSON_MINIMAL))),
         ("期限が翌日", {"type": "Query", "inputs": {"from": f"@{lent}", "where": f"@and(equals({jst(it + '?[' + repr('DueDate') + ']')}, {tomorrow}), not({notified_today(it)}))"}}),
         loop("前日のお知らせごと", "期限が翌日", chain(
@@ -816,7 +817,11 @@ def flw003():
                                        f"<p>備品：@{{{cur_b}?['Equipment']?['Title']}}<br>返却予定日：@{{{jst(cur_b + '?[' + repr('DueDate') + ']')}}}</p>")),
             ("お知らせ済みにする", sp_merge("貸出記録", f"{cur_b}?['Id']", f"{cur_b}?['odata.etag']", {"LastNotifiedDate": f"@{{{today_utc}}}"})),
         )),
-        ("期限切れ", {"type": "Query", "inputs": {"from": f"@{lent}", "where": f"@and(less({jst(it + '?[' + repr('DueDate') + ']')}, {TODAY}), not({notified_today(it)}), less(int(coalesce({it}?['ReminderCount'], 0)), {limit}))"}}),
+    ]
+    # 督促はお知らせと別の範囲で、読み直してから行う（お知らせでつまずいても督促は動く）
+    part_c = [
+        ("督促対象の取得", secure(sp_http("GET", f"_api/web/lists/getbytitle('貸出記録')/items?{select}&$filter=LoanStatus eq '貸出中'", accept=JSON_MINIMAL))),
+        ("期限切れ", {"type": "Query", "inputs": {"from": f"@{lent_c}", "where": f"@and(less({jst(it + '?[' + repr('DueDate') + ']')}, {TODAY}), not({notified_today(it)}), less(int(coalesce({it}?['ReminderCount'], 0)), {limit}))"}}),
         loop("督促ごと", "期限切れ", chain(
             ("督促の回数", compose(f"@add(int(coalesce({cur_c}?['ReminderCount'], 0)), 1)")),
             ("督促のメール", outlook_mail(f"@{{{cur_c}?['Requester']?['EMail']}}",
@@ -827,7 +832,7 @@ def flw003():
             ("上限に達した", cond(
                 {"greaterOrEquals": ["@outputs('督促の回数')", f"@{limit}"]},
                 chain(
-                    # 管理者のメールアドレスが設定されていないときは、メールは送らず、Teams の通知だけにする
+                    # 管理者のメールアドレスが設定されていないときは、メールは送らず、Teams の通知だけにする（Teams には氏名を載せない）
                     ("上限を管理者に知らせる", cond(
                         {"not": {"equals": ["@variables('管理者メール')", ""]}},
                         {"上限の管理者メール": outlook_mail("@variables('管理者メール')",
@@ -838,7 +843,7 @@ def flw003():
                         {},
                     )),
                     ("上限の通知", teams_card(f"@{{concat('督促が上限に達しました：', {cur_c}?['Equipment']?['Title'])}}",
-                                         [("申請者", md_safe(f"{cur_c}?['Requester']?['Title']", 50)), ("返却予定日", jst(cur_c + "?['DueDate']"))])),
+                                         [("貸出記録ID", f"string({cur_c}?['Id'])"), ("返却予定日", jst(cur_c + "?['DueDate']")), ("対応", "'貸出記録リスト（所有者だけが読める）で、この ID の申請者に連絡してください'")])),
                 ),
                 {},
             )),
@@ -848,7 +853,7 @@ def flw003():
     # D: 止まった記録の後始末（承認の途中で止まった承認待ち・作りかけの確認中）
     cur_d = "items('止まった承認待ちごと')"
     cur_e = "items('作りかけごと')"
-    part_d = [
+    part_d1 = [
         ("承認待ちの取得", sp_http("GET", f"_api/web/lists/getbytitle('貸出記録')/items?{select}&$filter=LoanStatus eq '承認待ち'", accept=JSON_MINIMAL)),
         # 承認を始めてから8日（承認の期限 7日＋1日）過ぎたもの、または承認を始めないまま1日過ぎたもの
         ("止まった承認待ち", {"type": "Query", "inputs": {"from": "@body('承認待ちの取得')?['value']",
@@ -864,6 +869,8 @@ def flw003():
                                          f"@{{concat('【備品貸出】申請を期限切れにしました：', {cur_d}?['Equipment']?['Title'])}}",
                                          "<p>承認の処理が期限までに終わらなかったため、申請を期限切れにしました。必要であれば、もう一度申請してください。</p>")),
         )),
+    ]
+    part_d2 = [
         ("確認中の取得", sp_http("GET", f"_api/web/lists/getbytitle('貸出記録')/items?{select}&$filter=LoanStatus eq '確認中'", accept=JSON_MINIMAL)),
         ("作りかけ", {"type": "Query", "inputs": {"from": "@body('確認中の取得')?['value']", "where": "@less(ticks(item()?['Created']), ticks(addHours(utcNow(), -1)))"}}),
         loop("作りかけごと", "作りかけ", chain(
@@ -873,8 +880,8 @@ def flw003():
         )),
     ]
 
-    # 4つの処理を、それぞれ独立した範囲（Scope）にし、前の範囲が失敗しても次の範囲に進める
-    # （開始日の切り替えでつまずいても、前日のお知らせ・督促・後始末は動く。失敗は「失敗時」で処理ログに残る）
+    # 5つの処理を、それぞれ独立した範囲（Scope）にし、前の範囲が失敗しても次の範囲に進める
+    # （どれか1つでつまずいても、残りは動く。失敗は「失敗時」で処理ログに残る）
     def secure_reads(part):
         for name, act in part:
             if name.endswith("の取得") and act.get("type") == "OpenApiConnection":
@@ -883,7 +890,9 @@ def flw003():
 
     try_actions = chain(*settings_steps())
     prev = "管理者メールの設定"
-    for scope_name, part in (("開始日の切り替え", part_a), ("前日のお知らせと督促", part_bc), ("止まった記録の後始末", part_d)):
+    scopes = (("開始日の切り替え", part_a), ("前日のお知らせ", part_b), ("督促", part_c),
+              ("止まった承認待ちの後始末", part_d1), ("作りかけの後始末", part_d2))
+    for scope_name, part in scopes:
         try_actions[scope_name] = {"type": "Scope", "runAfter": {prev: list(ANY_END)}, "actions": chain(*secure_reads(part))}
         prev = scope_name
     actions = chain(
@@ -900,7 +909,7 @@ def flw003():
     }, run_after={"失敗の要約": list(ANY_END)})
     # 範囲の状態は最後の手順で決まるため、「後始末」が成功すると、前の範囲が失敗していても「試行」は成功になる。
     # そこで「失敗時」は試行の後に必ず動かし、中のどれかが失敗していたときだけ、記録と通知をする
-    inner = ["設定の取得", "開始日の切り替え", "前日のお知らせと督促", "止まった記録の後始末"]
+    inner = ["設定の取得"] + [name for name, _ in scopes]
     failed_any = {"or": [{"equals": [f"@actions('{n}')?['status']", "Failed"]} for n in inner]
                   + [{"equals": ["@actions('試行')?['status']", "Failed"]}]}
     catch = actions.pop("失敗時")
@@ -1073,7 +1082,7 @@ def flw006():
     return {
         "displayName": "FLW-006 故障の対応状況の反映",
         "description": "管理者が故障報告の対応状況を変えたら、備品台帳の状態と Planner のタスクをそろえる",
-        "connectors": ["shared_sharepointonline", "shared_planner", "shared_office365", "shared_teams"],
+        "connectors": ["shared_sharepointonline", "shared_planner", "shared_office365"],
         "definition": definition(trigger, actions),
     }
 
@@ -1087,8 +1096,9 @@ def flw005():
     jst = lambda e: f"formatDateTime(convertFromUtc({e}, '{TZ}'), 'yyyy-MM-dd')"
 
     def csv_safe(e):
-        # Excel で数式として動かないよう、= + - @ で始まる値の先頭に ' を付ける（数式注入の対策）
-        return f"if(or(startsWith({e}, '='), startsWith({e}, '+'), startsWith({e}, '-'), startsWith({e}, '@')), concat('''', {e}), {e})"
+        # Excel で数式として動かないよう、= + - @ とタブ・CR で始まる値の先頭に ' を付ける（数式注入の対策）
+        heads = ["'='", "'+'", "'-'", "'@'", "decodeUriComponent('%09')", "decodeUriComponent('%0D')"]
+        return "if(or(" + ", ".join(f"startsWith({e}, {h})" for h in heads) + f"), concat('''', {e}), {e})"
 
     try_actions = chain(
         *settings_steps(),
@@ -1148,7 +1158,7 @@ def flw005():
     return {
         "displayName": "FLW-005 月次の集計",
         "description": "毎月1日9時に前月の申請・貸出・延滞・故障の件数を集計し、明細の CSV を保存して管理者に知らせる",
-        "connectors": ["shared_sharepointonline", "shared_office365", "shared_teams"],
+        "connectors": ["shared_sharepointonline", "shared_office365"],
         "definition": definition(trigger, actions),
     }
 

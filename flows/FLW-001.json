@@ -189,7 +189,14 @@
           ]
         },
         "type": "Compose",
-        "inputs": "@toLower(coalesce(triggerOutputs()?['headers']?['x-ms-user-email'], ''))"
+        "inputs": "@toLower(coalesce(triggerOutputs()?['headers']?['x-ms-user-email'], ''))",
+        "runtimeConfiguration": {
+          "secureData": {
+            "properties": [
+              "inputs"
+            ]
+          }
+        }
       },
       "今日": {
         "runAfter": {
@@ -297,6 +304,14 @@
                     "parameters/body": "@string(setProperty(json('{}'), 'logonName', concat('i:0#.f|membership|', outputs('呼び出し元'))))"
                   },
                   "authentication": "@parameters('$authentication')"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs",
+                      "outputs"
+                    ]
+                  }
                 }
               },
               "利用者の一致": {
@@ -1483,6 +1498,14 @@
                     "emailMessage/Importance": "Normal"
                   },
                   "authentication": "@parameters('$authentication')"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs",
+                      "outputs"
+                    ]
+                  }
                 }
               }
             },

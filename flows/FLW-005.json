@@ -3,8 +3,7 @@
   "description": "毎月1日9時に前月の申請・貸出・延滞・故障の件数を集計し、明細の CSV を保存して管理者に知らせる",
   "connectors": [
     "shared_sharepointonline",
-    "shared_office365",
-    "shared_teams"
+    "shared_office365"
   ],
   "definition": {
     "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
@@ -199,7 +198,7 @@
               "from": "@body('前月の貸出')?['value']",
               "select": {
                 "記録ID": "@item()?['Id']",
-                "管理番号": "@if(or(startsWith(coalesce(item()?['Equipment']?['Title'], ''), '='), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '+'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '-'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '@')), concat('''', coalesce(item()?['Equipment']?['Title'], '')), coalesce(item()?['Equipment']?['Title'], ''))",
+                "管理番号": "@if(or(startsWith(coalesce(item()?['Equipment']?['Title'], ''), '='), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '+'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '-'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '@'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), decodeUriComponent('%09')), startsWith(coalesce(item()?['Equipment']?['Title'], ''), decodeUriComponent('%0D'))), concat('''', coalesce(item()?['Equipment']?['Title'], '')), coalesce(item()?['Equipment']?['Title'], ''))",
                 "貸出開始日": "@formatDateTime(convertFromUtc(item()?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')",
                 "返却予定日": "@formatDateTime(convertFromUtc(item()?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')",
                 "状態": "@item()?['LoanStatus']",
@@ -307,6 +306,14 @@
                     "emailMessage/Importance": "Normal"
                   },
                   "authentication": "@parameters('$authentication')"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs",
+                      "outputs"
+                    ]
+                  }
                 }
               }
             },
@@ -409,6 +416,14 @@
                     "emailMessage/Importance": "Normal"
                   },
                   "authentication": "@parameters('$authentication')"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs",
+                      "outputs"
+                    ]
+                  }
                 }
               }
             },

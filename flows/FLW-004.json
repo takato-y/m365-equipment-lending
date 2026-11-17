@@ -335,6 +335,14 @@
                 "body/messageBody": "@string(setProperty(setProperty(setProperty(json('{}'), 'type', 'AdaptiveCard'), 'version', '1.4'), 'body', createArray(setProperty(setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('故障の報告を受け付けました：', replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(take(coalesce(outputs('管理番号'), ''), 20), '[', '［'), ']', '］'), '(', '（'), ')', '）'), '<', '＜'), '>', '＞'), '*', '＊'), '_', '＿'), '#', '＃'), '`', '｀'), '|', '｜'), '\\', '＼'), '://', '[:]//'), 'www.', 'www[.]'), 'WWW.', 'WWW[.]'), decodeUriComponent('%0A'), ' '), decodeUriComponent('%0D'), ' '))), 'weight', 'Bolder'), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('対応：', '故障報告リストと Planner「備品の修理対応」で確認してください')), 'wrap', true))))"
               },
               "authentication": "@parameters('$authentication')"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [
+                  "inputs",
+                  "outputs"
+                ]
+              }
             }
           }
         }
@@ -432,6 +440,14 @@
                     "emailMessage/Importance": "Normal"
                   },
                   "authentication": "@parameters('$authentication')"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs",
+                      "outputs"
+                    ]
+                  }
                 }
               }
             },

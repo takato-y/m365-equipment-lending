@@ -403,6 +403,14 @@
                             "emailMessage/Importance": "Normal"
                           },
                           "authentication": "@parameters('$authentication')"
+                        },
+                        "runtimeConfiguration": {
+                          "secureData": {
+                            "properties": [
+                              "inputs",
+                              "outputs"
+                            ]
+                          }
                         }
                       }
                     },
@@ -479,6 +487,14 @@
                                   "parameters/body": "@string(setProperty(json('{}'), 'logonName', concat('i:0#.f|membership|', toLower(coalesce(first(body('承認')?['responses'])?['responder']?['email'], '')))))"
                                 },
                                 "authentication": "@parameters('$authentication')"
+                              },
+                              "runtimeConfiguration": {
+                                "secureData": {
+                                  "properties": [
+                                    "inputs",
+                                    "outputs"
+                                  ]
+                                }
                               }
                             },
                             "結果の種類": {
@@ -519,6 +535,14 @@
                                           "parameters/body": "@string(setProperty(setProperty(setProperty(setProperty(json('{}'), 'LoanStatus', outputs('承認後の状態')), 'ApproverId', body('応答者の確認')?['Id']), 'ApprovalComment', take(coalesce(first(body('承認')?['responses'])?['comments'], ''), 500)), 'ApprovedAt', utcNow()))"
                                         },
                                         "authentication": "@parameters('$authentication')"
+                                      },
+                                      "runtimeConfiguration": {
+                                        "secureData": {
+                                          "properties": [
+                                            "inputs",
+                                            "outputs"
+                                          ]
+                                        }
                                       }
                                     },
                                     "承認の予約表": {
@@ -600,6 +624,14 @@
                                           "emailMessage/Importance": "Normal"
                                         },
                                         "authentication": "@parameters('$authentication')"
+                                      },
+                                      "runtimeConfiguration": {
+                                        "secureData": {
+                                          "properties": [
+                                            "inputs",
+                                            "outputs"
+                                          ]
+                                        }
                                       }
                                     },
                                     "承認の通知": {
@@ -620,9 +652,17 @@
                                           "location": "Channel",
                                           "body/recipient/groupId": "{{TEAM_ID}}",
                                           "body/recipient/channelId": "{{CHANNEL_ID}}",
-                                          "body/messageBody": "@string(setProperty(setProperty(setProperty(json('{}'), 'type', 'AdaptiveCard'), 'version', '1.4'), 'body', createArray(setProperty(setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('承認：', first(body('記録の読み直し')?['value'])?['Equipment']?['Title'])), 'weight', 'Bolder'), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('期間：', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')))), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('申請者：', replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(take(coalesce(first(body('記録の読み直し')?['value'])?['Requester']?['Title'], ''), 50), '[', '［'), ']', '］'), '(', '（'), ')', '）'), '<', '＜'), '>', '＞'), '*', '＊'), '_', '＿'), '#', '＃'), '`', '｀'), '|', '｜'), '\\', '＼'), '://', '[:]//'), 'www.', 'www[.]'), 'WWW.', 'WWW[.]'), decodeUriComponent('%0A'), ' '), decodeUriComponent('%0D'), ' '))), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('状態：', outputs('承認後の状態'))), 'wrap', true))))"
+                                          "body/messageBody": "@string(setProperty(setProperty(setProperty(json('{}'), 'type', 'AdaptiveCard'), 'version', '1.4'), 'body', createArray(setProperty(setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('承認：', first(body('記録の読み直し')?['value'])?['Equipment']?['Title'])), 'weight', 'Bolder'), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('期間：', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')))), 'wrap', true), setProperty(setProperty(setProperty(json('{}'), 'type', 'TextBlock'), 'text', concat('状態：', outputs('承認後の状態'))), 'wrap', true))))"
                                         },
                                         "authentication": "@parameters('$authentication')"
+                                      },
+                                      "runtimeConfiguration": {
+                                        "secureData": {
+                                          "properties": [
+                                            "inputs",
+                                            "outputs"
+                                          ]
+                                        }
                                       }
                                     }
                                   }
@@ -652,6 +692,14 @@
                                           "parameters/body": "@string(setProperty(setProperty(setProperty(setProperty(json('{}'), 'LoanStatus', '却下'), 'ApprovalComment', take('申請者本人による承認は受け付けていません', 500)), 'ApprovedAt', utcNow()), 'ApproverId', body('応答者の確認')?['Id']))"
                                         },
                                         "authentication": "@parameters('$authentication')"
+                                      },
+                                      "runtimeConfiguration": {
+                                        "secureData": {
+                                          "properties": [
+                                            "inputs",
+                                            "outputs"
+                                          ]
+                                        }
                                       }
                                     },
                                     "自己承認の予約表": {
@@ -731,6 +779,14 @@
                                           "emailMessage/Importance": "Normal"
                                         },
                                         "authentication": "@parameters('$authentication')"
+                                      },
+                                      "runtimeConfiguration": {
+                                        "secureData": {
+                                          "properties": [
+                                            "inputs",
+                                            "outputs"
+                                          ]
+                                        }
                                       }
                                     }
                                   }
@@ -760,6 +816,14 @@
                                         "parameters/body": "@string(setProperty(setProperty(setProperty(setProperty(json('{}'), 'LoanStatus', '却下'), 'ApprovalComment', take(coalesce(first(body('承認')?['responses'])?['comments'], ''), 500)), 'ApprovedAt', utcNow()), 'ApproverId', body('応答者の確認')?['Id']))"
                                       },
                                       "authentication": "@parameters('$authentication')"
+                                    },
+                                    "runtimeConfiguration": {
+                                      "secureData": {
+                                        "properties": [
+                                          "inputs",
+                                          "outputs"
+                                        ]
+                                      }
                                     }
                                   },
                                   "却下の予約表": {
@@ -839,6 +903,14 @@
                                         "emailMessage/Importance": "Normal"
                                       },
                                       "authentication": "@parameters('$authentication')"
+                                    },
+                                    "runtimeConfiguration": {
+                                      "secureData": {
+                                        "properties": [
+                                          "inputs",
+                                          "outputs"
+                                        ]
+                                      }
                                     }
                                   }
                                 }
@@ -874,6 +946,14 @@
                                     "parameters/body": "@string(setProperty(setProperty(setProperty(json('{}'), 'LoanStatus', '却下'), 'ApprovalComment', take('承認した人を確認できませんでした', 500)), 'ApprovedAt', utcNow()))"
                                   },
                                   "authentication": "@parameters('$authentication')"
+                                },
+                                "runtimeConfiguration": {
+                                  "secureData": {
+                                    "properties": [
+                                      "inputs",
+                                      "outputs"
+                                    ]
+                                  }
                                 }
                               },
                               "応答者不明の予約表": {
@@ -953,6 +1033,14 @@
                                     "emailMessage/Importance": "Normal"
                                   },
                                   "authentication": "@parameters('$authentication')"
+                                },
+                                "runtimeConfiguration": {
+                                  "secureData": {
+                                    "properties": [
+                                      "inputs",
+                                      "outputs"
+                                    ]
+                                  }
                                 }
                               }
                             }
@@ -1066,6 +1154,14 @@
                     "emailMessage/Importance": "Normal"
                   },
                   "authentication": "@parameters('$authentication')"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs",
+                      "outputs"
+                    ]
+                  }
                 }
               }
             },
