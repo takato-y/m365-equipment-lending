@@ -24,13 +24,14 @@ jobs:
       # テナント・環境を特定できる値（SharePoint のドメイン・GUID・メールアドレス）が入っていないこと
       - name: 公開してよいかの検査
         run: python3 tools/check_public_safety.py
-      # flows/*.json が生成元（tools/gen_flows.py）と一致していること
+      # flows/*.json とフロー設計書が生成元と一致していること
       - name: フローの定義の再生成と差分の確認
         run: |
           python3 tools/gen_flows.py
-          # 変わったファイルと、新しくできた未登録のファイルの両方を検出する
-          git status --porcelain -- flows/
-          test -z "$(git status --porcelain -- flows/)"
+          python3 tools/flow_doc.py
+          # 変わったファイルと、新しくできた未登録のファイルの両方を検出する（フロー設計書も定義と一致していること）
+          git status --porcelain -- flows/ docs/flows/
+          test -z "$(git status --porcelain -- flows/ docs/flows/)"
       # 定義から取り込み用の zip を作れること（値は架空の設定で埋める）
       - name: パッケージの作成
         run: |

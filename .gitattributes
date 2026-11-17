@@ -1,0 +1,3 @@
+# GitHub の言語の集計に、Power Automate のフロー定義（JSON）と Power Apps の画面定義（YAML）を含める
+flows/*.json linguist-detectable=true
+app/*.yaml linguist-detectable=true
