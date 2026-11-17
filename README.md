@@ -60,7 +60,7 @@ flowchart LR
 |---|---|---|
 | <img src="docs/images/approval.png" alt="承認依頼。件名・期間・利用目的が表示される" width="200"> | <img src="docs/images/teams-approved.png" alt="承認の知らせのカード" width="300"> | <img src="docs/images/outlook-mail.png" alt="承認されたことを知らせるメール" width="380"> |
 
-> Teams のカードの画像は、最終監査の前の版です（申請者の行があり、氏名は塗りつぶし）。今の版では、チャンネルのカードに氏名を載せません。
+> Teams のカードは、最終監査の修正（チャンネルに氏名を載せない）の後に、別の申請（TB-001）で撮り直したものです。
 
 **3. 社員の「自分の貸出」で予約済みになる**
 
