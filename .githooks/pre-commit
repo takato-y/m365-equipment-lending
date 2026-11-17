@@ -1,0 +1,3 @@
+#!/bin/sh
+# コミットに入る内容（ステージ）に、テナント・環境を特定できる値が残っていないかを検査する
+exec python3 tools/check_public_safety.py --staged

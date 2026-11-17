@@ -1,0 +1,6 @@
+# 書き出したソリューションの zip・アプリの msapp（展開した中身だけを管理する）
+solution/*.zip
+*.msapp
+# 手元の作業記録
+*.log
+__pycache__/
