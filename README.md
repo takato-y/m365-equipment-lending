@@ -3,7 +3,7 @@
 [![check](https://github.com/takato-y/m365-equipment-lending/actions/workflows/check.yml/badge.svg)](https://github.com/takato-y/m365-equipment-lending/actions/workflows/check.yml)
 
 - GitHub Actions で検査している範囲：公開してよいかの検査（テナントのドメイン・GUID・メールアドレス）、フローの定義が生成元と一致すること、取り込み用のパッケージを作れること、スクリプトの構文
-- 実際の Microsoft 365 の環境で確認した範囲：6本のフローと3画面の動作（2026-11-17・18。テスト仕様書の TC-001〜TC-031。通しの確認 TC-032・033 は実施中）。社内のユーザーが1人の環境のため、権限の分離などは未確認（[テスト仕様書 3 章](docs/05_テスト仕様書.md)）
+- 実際の Microsoft 365 の環境で確認した範囲：6本のフローと3画面の動作（2026-11-17・18。テスト仕様書の TC-001〜TC-033）。社内のユーザーが1人の環境のため、権限の分離などは未確認（[テスト仕様書 3 章](docs/05_テスト仕様書.md)）
 
 本リポジトリはポートフォリオ（閲覧用）です。無断での再利用・再配布はご遠慮ください。
 
@@ -46,7 +46,37 @@ flowchart LR
 
 ## 画面と動作の様子
 
-【画像】
+架空のデータで、申請から承認・通知まで、故障の報告から対応タスクまでを、実際の Microsoft 365 の環境で通しで動かしたときの画面です（2026-11-18。氏名・管理用の ID は塗りつぶしています）。
+
+**1. 社員が備品を選んで申請する（Power Apps）**
+
+<img src="docs/images/app-equipment.png" alt="備品の一覧。区分で絞り込み、管理番号・品名で検索でき、利用可の備品に「申請する」が出る" width="720">
+
+<img src="docs/images/app-apply.png" alt="貸出の申請の画面。開始日・返却予定日・利用目的を入れる" width="720">
+
+**2. 承認者に承認依頼が届く（承認）→ 承認すると Teams とメールで知らせる**
+
+| 承認依頼 | Teams のチャンネル | 申請者へのメール |
+|---|---|---|
+| <img src="docs/images/approval.png" alt="承認依頼。件名・期間・利用目的が表示される" width="200"> | <img src="docs/images/teams-approved.png" alt="承認の知らせのカード" width="300"> | <img src="docs/images/outlook-mail.png" alt="承認されたことを知らせるメール" width="380"> |
+
+**3. 社員の「自分の貸出」で予約済みになる**
+
+<img src="docs/images/app-mine.png" alt="自分の貸出。承認された申請が予約済みになり、開始前なので取り消せる" width="720">
+
+**4. 故障を Forms で報告すると、Planner に対応タスクができ、Teams に知らせる（内容と報告者はチャンネルに載せない）**
+
+<img src="docs/images/forms.png" alt="故障・不具合の報告のフォーム" width="560">
+
+<img src="docs/images/teams-fault.png" alt="故障の受付のカード" width="380"> <img src="docs/images/planner.png" alt="Planner の確認待ちのバケットにタスクができる" width="560">
+
+<img src="docs/images/sp-faults.png" alt="故障報告リスト。管理者が対応状況を変えると備品台帳と Planner に反映される" width="720">
+
+**5. フロー6本と実行の記録（Power Automate）**
+
+<img src="docs/images/pa-flows.png" alt="FLW-001〜006 の一覧" width="720">
+
+<img src="docs/images/pa-run.png" alt="FLW-002 承認の実行の記録。試行のスコープと失敗時のスコープに分かれている" width="160">
 
 ## 設計の要点
 
