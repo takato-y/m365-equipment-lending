@@ -700,7 +700,7 @@
                           "IF-MATCH": "@{items('止まった承認待ちごと')?['odata.etag']}",
                           "X-HTTP-Method": "MERGE"
                         },
-                        "parameters/body": "@string(setProperty(setProperty(json('{}'), 'LoanStatus', '期限切れ'), 'ProcessNote', '承認の処理が期限までに終わらなかったため、期限切れにした'))"
+                        "parameters/body": "@string(setProperty(setProperty(json('{}'), 'LoanStatus', '期限切れ'), 'ProcessNote', '承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。'))"
                       },
                       "authentication": "@parameters('$authentication')"
                     }
@@ -777,8 +777,8 @@
                       },
                       "parameters": {
                         "emailMessage/To": "@{items('止まった承認待ちごと')?['Requester']?['EMail']}",
-                        "emailMessage/Subject": "@{concat('【備品貸出】申請を期限切れにしました：', items('止まった承認待ちごと')?['Equipment']?['Title'])}",
-                        "emailMessage/Body": "<p>承認の処理が期限までに終わらなかったため、申請を期限切れにしました。必要であれば、もう一度申請してください。</p>",
+                        "emailMessage/Subject": "@{concat('【備品貸出】申請が無効になりました：', items('止まった承認待ちごと')?['Equipment']?['Title'])}",
+                        "emailMessage/Body": "<p>承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。</p>",
                         "emailMessage/Importance": "Normal"
                       },
                       "authentication": "@parameters('$authentication')"
@@ -880,7 +880,7 @@
                           "IF-MATCH": "@{items('作りかけごと')?['odata.etag']}",
                           "X-HTTP-Method": "MERGE"
                         },
-                        "parameters/body": "@string(setProperty(setProperty(json('{}'), 'LoanStatus', 'エラー'), 'ProcessNote', '確認中のまま1時間以上たったため、エラーにした'))"
+                        "parameters/body": "@string(setProperty(setProperty(json('{}'), 'LoanStatus', 'エラー'), 'ProcessNote', '申請の処理が完了しなかったため、申請を受け付けられませんでした。お手数ですが、もう一度申請してください。'))"
                       },
                       "authentication": "@parameters('$authentication')"
                     }
@@ -1020,6 +1020,13 @@
                 "inputs": {
                   "from": "@result('試行')",
                   "where": "@equals(item()?['status'], 'Failed')"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs"
+                    ]
+                  }
                 }
               },
               "失敗の要約": {
@@ -1032,6 +1039,13 @@
                 "inputs": {
                   "from": "@body('失敗した手順')",
                   "select": "@concat(item()?['name'], ':', coalesce(item()?['code'], ''))"
+                },
+                "runtimeConfiguration": {
+                  "secureData": {
+                    "properties": [
+                      "inputs"
+                    ]
+                  }
                 }
               },
               "処理ログに記録": {

@@ -362,6 +362,13 @@
             "inputs": {
               "from": "@result('試行')",
               "where": "@equals(item()?['status'], 'Failed')"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [
+                  "inputs"
+                ]
+              }
             }
           },
           "失敗の要約": {
@@ -374,6 +381,13 @@
             "inputs": {
               "from": "@body('失敗した手順')",
               "select": "@concat(item()?['name'], ':', coalesce(item()?['code'], ''))"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [
+                  "inputs"
+                ]
+              }
             }
           },
           "処理ログに記録": {

@@ -286,7 +286,7 @@ def flw001():
                 ("受付のメッセージ", set_var("メッセージ", "申請を受け付けました。承認の結果はメールでお知らせします。")),
             ),
             chain(
-                ("先の申請に譲る", sp_merge("貸出記録", new_id, new_etag, {"LoanStatus": "却下", "ProcessNote": "同じ期間に先の申請があるため受け付けなかった"})),
+                ("先の申請に譲る", sp_merge("貸出記録", new_id, new_etag, {"LoanStatus": "却下", "ProcessNote": "同じ期間に先に申請がありました。期間を変えて、もう一度申請してください。"})),
                 ("競合の結果", set_var("結果", "却下")),
                 ("競合のメッセージ", set_var("メッセージ", "同じ期間に、ほかの申請があります。期間を変えて申請してください。")),
             ),
@@ -445,9 +445,10 @@ def flw001():
         ),
     }
     catch_actions = {}
-    catch_actions["失敗した手順"] = {"runAfter": {}, "type": "Query", "inputs": {"from": "@result('試行')", "where": "@equals(item()?['status'], 'Failed')"}}
+    # 試行の結果（result）は各手順の入力・出力を含みうるため、実行の記録に残さない
+    catch_actions["失敗した手順"] = secure({"runAfter": {}, "type": "Query", "inputs": {"from": "@result('試行')", "where": "@equals(item()?['status'], 'Failed')"}})
     # 手順の名前とエラーの種類だけを取り出す（入力・出力の中身は入れない）
-    catch_actions["失敗の要約"] = {"runAfter": after("失敗した手順"), "type": "Select", "inputs": {"from": "@body('失敗した手順')", "select": "@concat(item()?['name'], ':', coalesce(item()?['code'], ''))"}}
+    catch_actions["失敗の要約"] = secure({"runAfter": after("失敗した手順"), "type": "Select", "inputs": {"from": "@body('失敗した手順')", "select": "@concat(item()?['name'], ':', coalesce(item()?['code'], ''))"}})
     # 作りかけの記録を「エラー」にする（確認中のまま残すと、その期間の申請が受け付けられなくなるため）
     catch_actions["作りかけの記録あり"] = cond(
         {"greater": ["@variables('新しい記録ID')", 0]},
@@ -459,7 +460,7 @@ def flw001():
                 # 記録をエラーにできたときだけ、その記録の予約表の行を消す（承認待ちに進んだ記録の予約は残す）
                 chain(
                     ("作りかけをエラーにする", sp_merge("貸出記録", "variables('新しい記録ID')", "first(body('作りかけの読み直し')?['value'])?['odata.etag']",
-                                                  {"LoanStatus": "エラー", "ProcessNote": "処理の途中で失敗したため、エラーにした"})),
+                                                  {"LoanStatus": "エラー", "ProcessNote": "処理中に問題が発生したため、申請を受け付けられませんでした。お手数ですが、もう一度申請してください。"})),
                     ("作りかけの予約表", sp_http("GET", "_api/web/lists/getbytitle('予約表')/items?$select=Id&$filter=Title eq '@{variables('新しい記録ID')}'")),
                     ("作りかけの予約表から消す", {
                         "type": "Foreach",
@@ -558,8 +559,9 @@ def teams_card(title_expr, lines, run_after=None):
 def catch_block(flow_label, extra_first=None, target_expr="@{concat('貸出記録ID=', string(coalesce(triggerBody()?['ID'], 0)))}"):
     """失敗時の処理（処理ログへの記録・管理者へのメール）。どの手順が失敗しても最後まで進む"""
     acts = {}
-    acts["失敗した手順"] = {"runAfter": {}, "type": "Query", "inputs": {"from": "@result('試行')", "where": "@equals(item()?['status'], 'Failed')"}}
-    acts["失敗の要約"] = {"runAfter": after("失敗した手順"), "type": "Select", "inputs": {"from": "@body('失敗した手順')", "select": "@concat(item()?['name'], ':', coalesce(item()?['code'], ''))"}}
+    # 試行の結果（result）は各手順の入力・出力を含みうるため、実行の記録に残さない
+    acts["失敗した手順"] = secure({"runAfter": {}, "type": "Query", "inputs": {"from": "@result('試行')", "where": "@equals(item()?['status'], 'Failed')"}})
+    acts["失敗の要約"] = secure({"runAfter": after("失敗した手順"), "type": "Select", "inputs": {"from": "@body('失敗した手順')", "select": "@concat(item()?['name'], ':', coalesce(item()?['code'], ''))"}})
     prev = "失敗の要約"
     for name, act in (extra_first or []):
         act["runAfter"] = {prev: list(ANY_END)}
@@ -681,11 +683,11 @@ def flw002():
             {"equals": ["@first(body('期限後の読み直し')?['value'])?['LoanStatus']", "承認待ち"]},
             chain(
                 ("期限切れを記録", sp_merge("貸出記録", loan_id, "first(body('期限後の読み直し')?['value'])?['odata.etag']",
-                                     {"LoanStatus": "期限切れ", "ProcessNote": "承認の期限までに応答がなかった"})),
+                                     {"LoanStatus": "期限切れ", "ProcessNote": "承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。"})),
                 *reservation_update("期限切れ"),
                 ("期限切れのメール", mail_requester(
                     f"@{{concat('【備品貸出】承認の期限が切れました：', {equip}, ' ', {period})}}",
-                    f"<p>承認の期限までに応答がなかったため、申請を期限切れにしました。必要であれば、もう一度申請してください。</p><p>備品：@{{{equip}}}<br>期間：@{{{period}}}</p>")),
+                    f"<p>承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。</p><p>備品：@{{{equip}}}<br>期間：@{{{period}}}</p>")),
             ),
             {},
         )),
@@ -863,11 +865,11 @@ def flw003():
                                                                   "and(empty(item()?['ApprovalStartedAt']), less(ticks(item()?['Created']), ticks(addDays(utcNow(), -1)))))"}}),
         loop("止まった承認待ちごと", "止まった承認待ち", chain(
             ("止まった記録を期限切れにする", sp_merge("貸出記録", f"{cur_d}?['Id']", f"{cur_d}?['odata.etag']",
-                                            {"LoanStatus": "期限切れ", "ProcessNote": "承認の処理が期限までに終わらなかったため、期限切れにした"})),
+                                            {"LoanStatus": "期限切れ", "ProcessNote": "承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。"})),
             *reservation_sync("止まった", cur_d),
             ("止まった記録のメール", outlook_mail(f"@{{{cur_d}?['Requester']?['EMail']}}",
-                                         f"@{{concat('【備品貸出】申請を期限切れにしました：', {cur_d}?['Equipment']?['Title'])}}",
-                                         "<p>承認の処理が期限までに終わらなかったため、申請を期限切れにしました。必要であれば、もう一度申請してください。</p>")),
+                                         f"@{{concat('【備品貸出】申請が無効になりました：', {cur_d}?['Equipment']?['Title'])}}",
+                                         "<p>承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。</p>")),
         )),
     ]
     part_d2 = [
@@ -875,7 +877,7 @@ def flw003():
         ("作りかけ", {"type": "Query", "inputs": {"from": "@body('確認中の取得')?['value']", "where": "@less(ticks(item()?['Created']), ticks(addHours(utcNow(), -1)))"}}),
         loop("作りかけごと", "作りかけ", chain(
             ("作りかけをエラーにする", sp_merge("貸出記録", f"{cur_e}?['Id']", f"{cur_e}?['odata.etag']",
-                                          {"LoanStatus": "エラー", "ProcessNote": "確認中のまま1時間以上たったため、エラーにした"})),
+                                          {"LoanStatus": "エラー", "ProcessNote": "申請の処理が完了しなかったため、申請を受け付けられませんでした。お手数ですが、もう一度申請してください。"})),
             *reservation_sync("作りかけ", cur_e),
         )),
     ]
@@ -1096,8 +1098,9 @@ def flw005():
     jst = lambda e: f"formatDateTime(convertFromUtc({e}, '{TZ}'), 'yyyy-MM-dd')"
 
     def csv_safe(e):
-        # Excel で数式として動かないよう、= + - @ とタブ・CR で始まる値の先頭に ' を付ける（数式注入の対策）
-        heads = ["'='", "'+'", "'-'", "'@'", "decodeUriComponent('%09')", "decodeUriComponent('%0D')"]
+        # Excel で数式として動かないよう、= + - @（全角を含む）とタブ・CR・LF で始まる値の先頭に ' を付ける（数式注入の対策）
+        heads = ["'='", "'+'", "'-'", "'@'", "'＝'", "'＋'", "'－'", "'＠'",
+                 "decodeUriComponent('%09')", "decodeUriComponent('%0D')", "decodeUriComponent('%0A')"]
         return "if(or(" + ", ".join(f"startsWith({e}, {h})" for h in heads) + f"), concat('''', {e}), {e})"
 
     try_actions = chain(

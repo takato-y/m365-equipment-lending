@@ -73,7 +73,7 @@
     Properties:
       Height: =Parent.Height - Self.Y - 16
       Items: =colMine
-      TemplateSize: =80
+      TemplateSize: =104
       Width: =Parent.Width - 64
       X: =32
       Y: =140
@@ -110,10 +110,10 @@
           Control: Label@2.5.1
           Properties:
             Color: =RGBA(96, 94, 92, 1)
-            Height: =32
+            Height: =52
             Size: =12
             Text: =ThisItem.note
-            Width: =580
+            Width: =900
             X: =16
             Y: =44
       - btnReturn:

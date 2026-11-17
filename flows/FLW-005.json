@@ -198,7 +198,7 @@
               "from": "@body('前月の貸出')?['value']",
               "select": {
                 "記録ID": "@item()?['Id']",
-                "管理番号": "@if(or(startsWith(coalesce(item()?['Equipment']?['Title'], ''), '='), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '+'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '-'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '@'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), decodeUriComponent('%09')), startsWith(coalesce(item()?['Equipment']?['Title'], ''), decodeUriComponent('%0D'))), concat('''', coalesce(item()?['Equipment']?['Title'], '')), coalesce(item()?['Equipment']?['Title'], ''))",
+                "管理番号": "@if(or(startsWith(coalesce(item()?['Equipment']?['Title'], ''), '='), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '+'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '-'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '@'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '＝'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '＋'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '－'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), '＠'), startsWith(coalesce(item()?['Equipment']?['Title'], ''), decodeUriComponent('%09')), startsWith(coalesce(item()?['Equipment']?['Title'], ''), decodeUriComponent('%0D')), startsWith(coalesce(item()?['Equipment']?['Title'], ''), decodeUriComponent('%0A'))), concat('''', coalesce(item()?['Equipment']?['Title'], '')), coalesce(item()?['Equipment']?['Title'], ''))",
                 "貸出開始日": "@formatDateTime(convertFromUtc(item()?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')",
                 "返却予定日": "@formatDateTime(convertFromUtc(item()?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')",
                 "状態": "@item()?['LoanStatus']",
@@ -338,6 +338,13 @@
             "inputs": {
               "from": "@result('試行')",
               "where": "@equals(item()?['status'], 'Failed')"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [
+                  "inputs"
+                ]
+              }
             }
           },
           "失敗の要約": {
@@ -350,6 +357,13 @@
             "inputs": {
               "from": "@body('失敗した手順')",
               "select": "@concat(item()?['name'], ':', coalesce(item()?['code'], ''))"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [
+                  "inputs"
+                ]
+              }
             }
           },
           "処理ログに記録": {

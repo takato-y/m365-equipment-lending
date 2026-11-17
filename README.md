@@ -66,6 +66,10 @@ flowchart LR
 
 <img src="docs/images/app-mine.png" alt="自分の貸出。承認された申請が予約済みになり、開始前なので取り消せる" width="720">
 
+承認されないまま期限を過ぎた申請などは、理由と次にすることを、記録の下に表示します。
+
+<img src="docs/images/app-mine-note.png" alt="期限切れの申請の下に「承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。」と表示される" width="640">
+
 **4. 故障を Forms で報告すると、Planner に対応タスクができ、Teams に知らせる（内容と報告者はチャンネルに載せない）**
 
 <img src="docs/images/forms.png" alt="故障・不具合の報告のフォーム" width="560">
