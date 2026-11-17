@@ -1,0 +1,47 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 検査はリポジトリを読むだけなので、トークンの権限を読み取りに限定する
+permissions:
+  contents: read
+
+# Microsoft 365 の環境での動作（フロー・アプリ）は対象外。手元の環境での確認は docs/05_テスト仕様書.md に記録する。
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # テナント・環境を特定できる値（SharePoint のドメイン・GUID・メールアドレス）が入っていないこと
+      - name: 公開してよいかの検査
+        run: python3 tools/check_public_safety.py
+      # flows/*.json が生成元（tools/gen_flows.py）と一致していること
+      - name: フローの定義の再生成と差分の確認
+        run: |
+          python3 tools/gen_flows.py
+          git diff --exit-code -- flows/
+      # 定義から取り込み用の zip を作れること（値は架空の設定で埋める）
+      - name: パッケージの作成
+        run: |
+          python3 - <<'EOF'
+          import json, pathlib, re
+          keys = set()
+          for f in pathlib.Path("flows").glob("*.json"):
+              keys |= set(re.findall(r"\{\{([A-Z_]+)\}\}", f.read_text(encoding="utf-8")))
+          cfg = {k: "https://contoso.example.com/sites/demo" if k == "SITE_URL" else "x" for k in keys}
+          pathlib.Path("ci-config.json").write_text(json.dumps(cfg), encoding="utf-8")
+          EOF
+          for f in flows/*.json; do python3 tools/build_package.py "$f" -c ci-config.json -o "out/$(basename "$f" .json).zip"; done
+      - name: スクリプトの構文の確認
+        run: |
+          node --check tools/provision-lists.js
+          node --check tools/seed-test-loans.js
