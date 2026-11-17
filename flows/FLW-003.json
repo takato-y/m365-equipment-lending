@@ -700,7 +700,7 @@
                           "IF-MATCH": "@{items('止まった承認待ちごと')?['odata.etag']}",
                           "X-HTTP-Method": "MERGE"
                         },
-                        "parameters/body": "@string(setProperty(setProperty(json('{}'), 'LoanStatus', '期限切れ'), 'ProcessNote', '承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。'))"
+                        "parameters/body": "@string(setProperty(setProperty(json('{}'), 'LoanStatus', '期限切れ'), 'ProcessNote', '承認の期限までに承認されなかったため、申請は期限切れになりました。必要な場合は、もう一度申請してください。'))"
                       },
                       "authentication": "@parameters('$authentication')"
                     }
@@ -777,8 +777,8 @@
                       },
                       "parameters": {
                         "emailMessage/To": "@{items('止まった承認待ちごと')?['Requester']?['EMail']}",
-                        "emailMessage/Subject": "@{concat('【備品貸出】申請が無効になりました：', items('止まった承認待ちごと')?['Equipment']?['Title'])}",
-                        "emailMessage/Body": "<p>承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。</p>",
+                        "emailMessage/Subject": "@{concat('【備品貸出】申請が期限切れになりました：', items('止まった承認待ちごと')?['Equipment']?['Title'])}",
+                        "emailMessage/Body": "<p>承認の期限までに承認されなかったため、申請は期限切れになりました。必要な場合は、もう一度申請してください。</p>",
                         "emailMessage/Importance": "Normal"
                       },
                       "authentication": "@parameters('$authentication')"

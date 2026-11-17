@@ -683,11 +683,11 @@ def flw002():
             {"equals": ["@first(body('期限後の読み直し')?['value'])?['LoanStatus']", "承認待ち"]},
             chain(
                 ("期限切れを記録", sp_merge("貸出記録", loan_id, "first(body('期限後の読み直し')?['value'])?['odata.etag']",
-                                     {"LoanStatus": "期限切れ", "ProcessNote": "承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。"})),
+                                     {"LoanStatus": "期限切れ", "ProcessNote": "承認の期限までに承認されなかったため、申請は期限切れになりました。必要な場合は、もう一度申請してください。"})),
                 *reservation_update("期限切れ"),
                 ("期限切れのメール", mail_requester(
-                    f"@{{concat('【備品貸出】承認の期限が切れました：', {equip}, ' ', {period})}}",
-                    f"<p>承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。</p><p>備品：@{{{equip}}}<br>期間：@{{{period}}}</p>")),
+                    f"@{{concat('【備品貸出】申請が期限切れになりました：', {equip}, ' ', {period})}}",
+                    f"<p>承認の期限までに承認されなかったため、申請は期限切れになりました。必要な場合は、もう一度申請してください。</p><p>備品：@{{{equip}}}<br>期間：@{{{period}}}</p>")),
             ),
             {},
         )),
@@ -865,11 +865,11 @@ def flw003():
                                                                   "and(empty(item()?['ApprovalStartedAt']), less(ticks(item()?['Created']), ticks(addDays(utcNow(), -1)))))"}}),
         loop("止まった承認待ちごと", "止まった承認待ち", chain(
             ("止まった記録を期限切れにする", sp_merge("貸出記録", f"{cur_d}?['Id']", f"{cur_d}?['odata.etag']",
-                                            {"LoanStatus": "期限切れ", "ProcessNote": "承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。"})),
+                                            {"LoanStatus": "期限切れ", "ProcessNote": "承認の期限までに承認されなかったため、申請は期限切れになりました。必要な場合は、もう一度申請してください。"})),
             *reservation_sync("止まった", cur_d),
             ("止まった記録のメール", outlook_mail(f"@{{{cur_d}?['Requester']?['EMail']}}",
-                                         f"@{{concat('【備品貸出】申請が無効になりました：', {cur_d}?['Equipment']?['Title'])}}",
-                                         "<p>承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。</p>")),
+                                         f"@{{concat('【備品貸出】申請が期限切れになりました：', {cur_d}?['Equipment']?['Title'])}}",
+                                         "<p>承認の期限までに承認されなかったため、申請は期限切れになりました。必要な場合は、もう一度申請してください。</p>")),
         )),
     ]
     part_d2 = [

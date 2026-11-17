@@ -321,7 +321,7 @@
                               "IF-MATCH": "@{first(body('期限後の読み直し')?['value'])?['odata.etag']}",
                               "X-HTTP-Method": "MERGE"
                             },
-                            "parameters/body": "@string(setProperty(setProperty(json('{}'), 'LoanStatus', '期限切れ'), 'ProcessNote', '承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。'))"
+                            "parameters/body": "@string(setProperty(setProperty(json('{}'), 'LoanStatus', '期限切れ'), 'ProcessNote', '承認の期限までに承認されなかったため、申請は期限切れになりました。必要な場合は、もう一度申請してください。'))"
                           },
                           "authentication": "@parameters('$authentication')"
                         }
@@ -398,8 +398,8 @@
                           },
                           "parameters": {
                             "emailMessage/To": "@{first(body('記録の読み直し')?['value'])?['Requester']?['EMail']}",
-                            "emailMessage/Subject": "@{concat('【備品貸出】承認の期限が切れました：', first(body('記録の読み直し')?['value'])?['Equipment']?['Title'], ' ', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')))}",
-                            "emailMessage/Body": "<p>承認の期限までに承認されなかったため、申請は無効になりました。必要な場合は、もう一度申請してください。</p><p>備品：@{first(body('記録の読み直し')?['value'])?['Equipment']?['Title']}<br>期間：@{concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'))}</p>",
+                            "emailMessage/Subject": "@{concat('【備品貸出】申請が期限切れになりました：', first(body('記録の読み直し')?['value'])?['Equipment']?['Title'], ' ', concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd')))}",
+                            "emailMessage/Body": "<p>承認の期限までに承認されなかったため、申請は期限切れになりました。必要な場合は、もう一度申請してください。</p><p>備品：@{first(body('記録の読み直し')?['value'])?['Equipment']?['Title']}<br>期間：@{concat(formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['StartDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'), '〜', formatDateTime(convertFromUtc(first(body('記録の読み直し')?['value'])?['DueDate'], 'Tokyo Standard Time'), 'yyyy-MM-dd'))}</p>",
                             "emailMessage/Importance": "Normal"
                           },
                           "authentication": "@parameters('$authentication')"
